@@ -1,0 +1,55 @@
+{
+  "name": "@apocaliss92/scrypted-frigate-bridge",
+  "description": "Import object detections from Frigate, videoclips as well",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apocaliss92/scrypted-frigate-bridge"
+  },
+  "version": "0.0.1",
+  "scripts": {
+    "scrypted-setup-project": "scrypted-setup-project",
+    "prescrypted-setup-project": "scrypted-package-json",
+    "build": "scrypted-webpack",
+    "prepublishOnly": "NODE_ENV=production scrypted-webpack",
+    "prescrypted-vscode-launch": "scrypted-webpack",
+    "scrypted-vscode-launch": "scrypted-deploy-debug",
+    "scrypted-deploy-debug": "scrypted-deploy-debug",
+    "scrypted-debug": "scrypted-debug",
+    "scrypted-deploy": "scrypted-deploy",
+    "scrypted-readme": "scrypted-readme",
+    "scrypted-package-json": "scrypted-package-json"
+  },
+  "keywords": [
+    "scrypted",
+    "plugin",
+    "frigate",
+    "object",
+    "detection",
+    "mqtt",
+    "videoclips",
+    "snapshots",
+    "model"
+  ],
+  "scrypted": {
+    "name": "Frigate bridge",
+    "type": "API",
+    "interfaces": [
+      "Settings",
+      "DeviceProvider",
+      "HttpRequestHandler"
+    ],
+    "pluginDependencies": []
+  },
+  "dependencies": {
+    "@scrypted/common": "file:../scrypted/common",
+    "@scrypted/sdk": "^0.3.124",
+    "axios": "^0.23.0",
+    "lodash": "^4.17.21",
+    "moment": "^2.30.1",
+    "mqtt": "5.10.4"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.12",
+    "@types/node": "^22.15.2"
+  }
+}

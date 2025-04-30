@@ -1,0 +1,6 @@
+.DS_Store
+out/
+node_modules/
+.venv
+src/darwin arm64 Darwin Kernel Version 23.yml
+log.json
