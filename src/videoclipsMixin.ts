@@ -85,7 +85,8 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
             const events = res.data as FrigateVideoClip[];
             const filteredEvents = events
-                .filter(event => event.has_clip && event.has_snapshot && event.data.max_severity === 'alert');
+                .filter(event => event.has_clip && event.has_snapshot && event.data.type === 'object');
+                // .filter(event => event.has_clip && event.has_snapshot && event.data.max_severity === 'alert');
 
             const videoclips: VideoClip[] = [];
             for (const event of filteredEvents) {

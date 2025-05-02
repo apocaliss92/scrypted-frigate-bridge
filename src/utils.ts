@@ -79,7 +79,7 @@ export interface FrigateVideoClip {
         top_score: number;
         attributes: string[];
         type: 'object';
-        max_severity: 'alert' | string; // se "alert" è l'unico valore possibile, lascialo così
+        max_severity: 'alert' | 'detection'; // se "alert" è l'unico valore possibile, lascialo così
     };
     thumbnail: string; // base64 stringa dell'immagine
 }
