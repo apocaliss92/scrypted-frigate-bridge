@@ -118,7 +118,8 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         const parsedValue = isAudioLevelValue ? JSON.parse(value) : value;
         if (labels?.includes(audioType) && (isAudioLevelValue || parsedValue === 'ON')) {
             const now = Date.now();
-            const detection: ObjectsDetected = {
+            const detection: FrigateObjectDetection = {
+                frigateEvent: { type: 'new' } as FrigateEvent,
                 timestamp: now,
                 inputDimensions: [0, 0],
                 detections: [
