@@ -59,8 +59,9 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
         const { eventsTopic } = this.storageSettings.values;
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();
+        const audioTopic = `frigate/+/audio/+`;
 
-        await mqttClient.subscribe([eventsTopic], async (messageTopic, message) => {
+        await mqttClient.subscribe([eventsTopic, audioTopic], async (messageTopic, message) => {
             if (messageTopic === eventsTopic) {
                 const obj: FrigateEvent = JSON.parse(message.toString());
                 logger.debug(`Event received: ${JSON.stringify(obj)}`);
@@ -72,7 +73,21 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
                 });
 
                 if (foundMixin) {
-                    foundMixin.onFrigateEvent(obj);
+                    await foundMixin.onFrigateDetectionEvent(obj);
+                }
+            } else {
+                // frigate/salone/audio/speec rms dBFS
+                const [_, camera, __, type] = messageTopic.split('/');
+                logger.debug(`Audio message received ${messageTopic} ${message}: ${camera} ${type}`);
+
+                const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                    const { cameraName } = mixin.storageSettings.values;
+
+                    return cameraName === camera;
+                });
+
+                if (foundMixin) {
+                    await foundMixin.onFrigateAudioEvent(type, message);
                 }
             }
         });
@@ -112,7 +127,7 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
             (interfaces.includes(ScryptedInterface.VideoCamera) || interfaces.includes(ScryptedInterface.Camera))) {
             return [
                 ScryptedInterface.Settings,
-                ScryptedInterface.ObjectDetector,
+                // ScryptedInterface.ObjectDetector,
                 FRIGATE_OBJECT_DETECTOR_INTERFACE]
         }
 

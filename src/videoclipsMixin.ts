@@ -1,7 +1,7 @@
 import sdk, { MediaObject, ScryptedDeviceBase, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detecionClasses";
+import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { baseFrigateApi, FrigateVideoClip } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 const { systemManager } = sdk;

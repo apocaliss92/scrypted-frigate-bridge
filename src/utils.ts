@@ -103,3 +103,5 @@ export const baseFrigateApi = (props: {
         params
     });
 }
+
+export type AudioType = 'dBFS' | 'rms' | string;

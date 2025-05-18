@@ -5,6 +5,7 @@ import FrigateBridgeObjectDetector from "./objectDetector";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 import http from 'http';
+import { baseFrigateApi } from "./utils";
 
 const objectDetectorNativeId = 'frigateObjectDetector'
 const videoclipsNativeId = 'frigateVideoclips'
@@ -28,32 +29,48 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
 
     objectDetectorDevice: FrigateBridgeObjectDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
+    mainInterval: NodeJS.Timeout;
+    labels: string[];
 
     constructor(nativeId: string) {
         super(nativeId, {
             pluginFriendlyName: 'Frigate Bridge',
         });
+        const logger = this.getLogger();
 
-        (async () => {
-            await sdk.deviceManager.onDeviceDiscovered(
-                {
-                    name: 'Frigate Object Detector',
-                    nativeId: objectDetectorNativeId,
-                    interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
-                    type: ScryptedDeviceType.API,
-                }
-            );
-            await sdk.deviceManager.onDeviceDiscovered(
-                {
-                    name: 'Frigate Videoclips',
-                    nativeId: videoclipsNativeId,
-                    interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
-                    type: ScryptedDeviceType.API,
-                }
-            );
-        })();
+        this.initData().catch(logger.log);
+    }
 
-        // (async () => {
+    async initData() {
+        const fn = async () => {
+            const res = await baseFrigateApi({
+                apiUrl: this.storageSettings.values.serverUrl,
+                service: 'labels',
+            });
+
+            const labels = res.data as string[];
+            this.labels = [...labels, 'dBFS', 'rms'];
+        }
+
+        this.mainInterval = setInterval(async () => await fn(), 60 * 1000);
+        await fn();
+
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
+                name: 'Frigate Object Detector',
+                nativeId: objectDetectorNativeId,
+                interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
+                type: ScryptedDeviceType.API,
+            }
+        );
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
+                name: 'Frigate Videoclips',
+                nativeId: videoclipsNativeId,
+                interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
+                type: ScryptedDeviceType.API,
+            }
+        );
         //     await sdk.deviceManager.onDeviceDiscovered(
         //         {
         //             name: 'Advanced notifier NVR notifier',
@@ -64,7 +81,6 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
         //     );
 
         //     await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
-        // })();
     }
 
     async executeCameraDiscovery(active: boolean) {
