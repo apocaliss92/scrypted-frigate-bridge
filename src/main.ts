@@ -7,7 +7,7 @@ import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 import http from 'http';
 import { baseFrigateApi } from "./utils";
 
-const objectDetectorNativeId = 'frigateObjectDetector'
+export const objectDetectorNativeId = 'frigateObjectDetector'
 const videoclipsNativeId = 'frigateVideoclips'
 const cameraNativeId = 'frigateBirdseyeCamera'
 
@@ -24,13 +24,26 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
             immediate: true,
             onPut: async (_, active) => await this.executeCameraDiscovery(active)
         },
+        labels: {
+            title: 'Available labels',
+            type: 'string',
+            readonly: true,
+            multiple: true,
+            choices: [],
+        },
+        cameras: {
+            title: 'Available cameras',
+            type: 'string',
+            readonly: true,
+            multiple: true,
+            choices: [],
+        }
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
     objectDetectorDevice: FrigateBridgeObjectDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
     mainInterval: NodeJS.Timeout;
-    labels: string[];
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -42,6 +55,8 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
     }
 
     async initData() {
+        const logger = this.getLogger();
+
         const fn = async () => {
             const res = await baseFrigateApi({
                 apiUrl: this.storageSettings.values.serverUrl,
@@ -49,10 +64,19 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
             });
 
             const labels = res.data as string[];
-            this.labels = [...labels, 'dBFS', 'rms'];
+            logger.log(`Labels found: ${labels}`);
+            this.putSetting('labels', [...labels, 'dBFS', 'rms']);
+
+            const configsResponse = await baseFrigateApi({
+                apiUrl: this.storageSettings.values.serverUrl,
+                service: 'config',
+            });
+            const cameras = Object.keys((configsResponse.data ?? {})?.cameras);
+            logger.log(`Cameras found: ${cameras}`);
+            this.putSetting('cameras', cameras);
         }
 
-        this.mainInterval = setInterval(async () => await fn(), 60 * 1000);
+        this.mainInterval = setInterval(async () => await fn(), 1000 * 60 * 10);
         await fn();
 
         await sdk.deviceManager.onDeviceDiscovered(

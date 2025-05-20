@@ -4,13 +4,13 @@ import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { baseFrigateApi, FrigateVideoClip } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
-const { systemManager } = sdk;
 
 export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
     storageSettings = new StorageSettings(this, {
         cameraName: {
             title: 'Frigate camera name',
             type: 'string',
+            immediate: true,
         },
     });
 
@@ -86,7 +86,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             const events = res.data as FrigateVideoClip[];
             const filteredEvents = events
                 .filter(event => event.has_clip && event.has_snapshot && event.data.type === 'object');
-                // .filter(event => event.has_clip && event.has_snapshot && event.data.max_severity === 'alert');
+            // .filter(event => event.has_clip && event.has_snapshot && event.data.max_severity === 'alert');
 
             const videoclips: VideoClip[] = [];
             for (const event of filteredEvents) {
@@ -156,6 +156,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
     async getMixinSettings(): Promise<Setting[]> {
         try {
+            this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);

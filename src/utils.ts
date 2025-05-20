@@ -99,7 +99,7 @@ export const baseFrigateApi = (props: {
     const { apiUrl, service, params } = props;
 
     const url = `${apiUrl}/${service}`;
-    return axios.get(url.toString(), {
+    return axios.get<any>(url.toString(), {
         params
     });
 }

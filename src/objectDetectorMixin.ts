@@ -12,17 +12,20 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         cameraName: {
             title: 'Frigate camera name',
             type: 'string',
+            choices: [],
+            immediate: true,
         },
         labels: {
             title: 'Labels to import',
             type: 'string',
             multiple: true,
             combobox: true,
+            immediate: true,
             choices: [],
             defaultValue: [],
             onGet: async () => {
                 return {
-                    choices: this.plugin.plugin.labels
+                    choices: this.plugin.plugin.storageSettings.values.labels
                 };
             }
         },
@@ -31,12 +34,14 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             type: 'string',
             multiple: true,
             combobox: true,
+            immediate: true,
             choices: ['new', 'update', 'end'],
             defaultValue: ['end']
         },
     });
 
     logger: Console;
+    lastAudioLevelsSent: Record<string, number> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -57,7 +62,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
     async getObjectTypes(): Promise<ObjectDetectionTypes> {
         return {
-            classes: this.plugin.plugin.labels
+            classes: this.plugin.plugin.storageSettings.values.labels
         };
     }
 
@@ -85,7 +90,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         const detection: FrigateObjectDetection = {
             frigateEvent: event,
             timestamp: event.after.start_time * 1000,
-            detectionId: event.after.id,
             inputDimensions: [0, 0],
             detections: [
                 { className: 'motion', score: 1, boundingBox },
@@ -109,17 +113,20 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     }
 
     async onFrigateAudioEvent(audioType: AudioType, value: any) {
-        const { labels } = this.storageSettings.values;
+        const { labels, cameraName } = this.storageSettings.values;
         const className = DetectionClass.Audio;
+        const now = Date.now();
 
         const isAudioLevelValue = ['dBFS', 'rms'].includes(audioType);
+        // const lastSent = this.lastAudioLevelsSent[audioType];
+        // const isTimePassed = isAudioLevelValue ? 
+        // !lastSent || now - lastSent > 1000 * 5 
 
         const logger = this.getLogger();
         const parsedValue = isAudioLevelValue ? JSON.parse(value) : value;
         if (labels?.includes(audioType) && (isAudioLevelValue || parsedValue === 'ON')) {
-            const now = Date.now();
             const detection: FrigateObjectDetection = {
-                frigateEvent: { type: 'new' } as FrigateEvent,
+                frigateEvent: { type: 'new', after: { camera: cameraName } } as FrigateEvent,
                 timestamp: now,
                 inputDimensions: [0, 0],
                 detections: [
@@ -147,6 +154,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         try {
             const classes = await this.getObjectTypes();
             this.storageSettings.settings.labels.choices = classes.classes;
+            this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);
