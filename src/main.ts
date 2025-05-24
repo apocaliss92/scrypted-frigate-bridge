@@ -1,26 +1,32 @@
-import sdk, { DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, SettingValue } from "@scrypted/sdk";
+import sdk, { DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { BasePlugin } from '../../scrypted-apocaliss-base/src/basePlugin';
+import http from 'http';
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
+import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
+import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
+import { baseFrigateApi, birdseyeCameraNativeId, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
-import http from 'http';
-import { baseFrigateApi, cameraNativeId, motionDetectorNativeId, objectDetectorNativeId, videoclipsNativeId } from "./utils";
-import FrigateBridgeMotionDetector from "./motionDetector";
 
-export default class FrigateBridgePlugin extends BasePlugin implements DeviceProvider, HttpRequestHandler {
-    initStorage: StorageSettingsDict<string> = {
+type StorageKey = 'serverUrl' |
+    'labels' |
+    'cameras' |
+    'exportCameraDevice' |
+    'enableBirdseyeCamera' |
+    'logLevel' |
+    'exportButton';
+
+export default class FrigateBridgePlugin extends RtspProvider implements DeviceProvider, HttpRequestHandler {
+    initStorage: StorageSettingsDict<StorageKey> = {
+        logLevel: {
+            ...logLevelSetting,
+        },
         serverUrl: {
             title: 'Frigate server API URL',
             description: 'URL to the Frigate server. Example: http://192.168.1.100:5000/api',
             type: 'string',
-        },
-        importBirdseyeCamera: {
-            title: 'Import Birdseye camera',
-            type: 'boolean',
-            immediate: true,
-            hide: true,
-            onPut: async (_, active) => await this.executeCameraDiscovery(active)
         },
         labels: {
             title: 'Available labels',
@@ -35,27 +41,65 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
             readonly: true,
             multiple: true,
             choices: [],
-        }
+        },
+        enableBirdseyeCamera: {
+            title: 'Enable birdseye camera',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: true,
+        },
+        exportCameraDevice: {
+            title: 'Camera',
+            group: 'Export camera',
+            type: 'device',
+            immediate: true,
+            deviceFilter: `interfaces.some(int => ['${ScryptedInterface.Camera}', '${ScryptedInterface.VideoCamera}'].includes(int))`
+        },
+        exportButton: {
+            title: 'Export',
+            group: 'Export camera',
+            type: 'button',
+            onPut: async () => await this.exportCamera()
+        },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
     objectDetectorDevice: FrigateBridgeObjectDetector;
     motionDetectorDevice: FrigateBridgeMotionDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
+    birdseyeCamera: FrigateBridgeBirdseyeCamera;
     mainInterval: NodeJS.Timeout;
+    logger: Console;
 
     constructor(nativeId: string) {
-        super(nativeId, {
-            pluginFriendlyName: 'Frigate Bridge',
-        });
+        super(nativeId);
         const logger = this.getLogger();
 
         this.initData().catch(logger.log);
     }
 
     getLogger() {
-        return super.getLoggerInternal({});
+        if (!this.logger) {
+            this.logger = getBaseLogger({
+                console: this.console,
+                storage: this.storageSettings,
+            });
+        }
 
+        return this.logger;
+    }
+
+    getScryptedDeviceCreator(): string {
+        return 'Frigate birdseye camera';
+    }
+
+    async getConfiguration() {
+        const configsResponse = await baseFrigateApi({
+            apiUrl: this.storageSettings.values.serverUrl,
+            service: 'config',
+        });
+
+        return configsResponse.data;
     }
 
     async initData() {
@@ -71,11 +115,9 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
             logger.log(`Labels found: ${labels}`);
             this.putSetting('labels', [...labels, 'dBFS', 'rms']);
 
-            const configsResponse = await baseFrigateApi({
-                apiUrl: this.storageSettings.values.serverUrl,
-                service: 'config',
-            });
-            const cameras = Object.keys((configsResponse.data ?? {})?.cameras);
+            const config = await this.getConfiguration();
+
+            const cameras = Object.keys((config ?? {})?.cameras);
             logger.log(`Cameras found: ${cameras}`);
             this.putSetting('cameras', cameras);
         }
@@ -108,11 +150,11 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
             }
         );
 
-        //     await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
+        await this.executeCameraDiscovery(this.storageSettings.values.enableBirdseyeCamera);
     }
 
     async executeCameraDiscovery(active: boolean) {
-        const interfaces: ScryptedInterface[] = [ScryptedInterface.Camera, ScryptedInterface.VideoClips];
+        const interfaces: ScryptedInterface[] = [ScryptedInterface.Camera];
 
         if (active) {
             interfaces.push(ScryptedInterface.VideoCamera);
@@ -121,7 +163,7 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
         await sdk.deviceManager.onDeviceDiscovered(
             {
                 name: 'Frigate Birdseye',
-                nativeId: cameraNativeId,
+                nativeId: birdseyeCameraNativeId,
                 interfaces,
                 type: ScryptedDeviceType.Camera,
             }
@@ -269,6 +311,107 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
         }
     }
 
+    async exportCamera() {
+        const logger = this.getLogger();
+        const { exportCameraDevice } = this.storageSettings.values;
+        if (!exportCameraDevice) {
+            return;
+        }
+        const cameraDevice = sdk.systemManager.getDeviceById<VideoCamera & Settings>(exportCameraDevice.id);
+        const streams = await cameraDevice.getVideoStreamOptions();
+        const settings = await cameraDevice.getSettings();
+
+        const highResStream = streams.find(stream => stream.destinations.includes('local'));
+        const lowResStream = streams.find(stream => stream.destinations.includes('low-resolution'));
+
+        const restreamHighStreamSetting = settings.find(setting =>
+            setting.key === 'prebuffer:rtspRebroadcastUrl' &&
+            setting.subgroup === `Stream: ${highResStream.name}`
+        );
+        const restreamLowStreamSetting = settings.find(setting =>
+            setting.key === 'prebuffer:rtspRebroadcastUrl' &&
+            setting.subgroup === `Stream: ${lowResStream.name}`
+        );
+
+        const localEndpoint = await sdk.endpointManager.getLocalEndpoint();
+        const hostname = new URL(localEndpoint).hostname;
+        const highResUrl = restreamHighStreamSetting?.value.toString().replace(
+            'localhost', hostname
+        );
+        const lowResUrl = restreamLowStreamSetting?.value.toString().replace(
+            'localhost', hostname
+        );
+
+        const highHwacclArgs = highResStream.video.codec === 'h265' ?
+            'preset-intel-qsv-h265' :
+            'preset-intel-qsv-h264';
+        const lowHwacclArgs = lowResStream.video.codec === 'h265' ?
+            'preset-intel-qsv-h265' :
+            'preset-intel-qsv-h264';
+
+        const cameraName = toSnakeCase(cameraDevice.name);
+        const cameraConfig = `
+${cameraName}:
+  ffmpeg:
+    inputs:
+      - path: ${highResUrl}
+        hwaccel_args: ${highHwacclArgs}
+        input_args: preset-rtsp-generic
+        roles:
+          - record
+      - path: ${lowResUrl}
+        hwaccel_args: ${lowHwacclArgs}
+        input_args: preset-rtsp-generic
+        roles:
+          - detect
+          - audio
+`;
+
+        logger.log(`Add the following snippet to your cameras configuration`);
+        logger.log(cameraConfig);
+
+        // const cameraObj = {
+        //     "ffmpeg": {
+        //         "inputs": [
+        //             {
+        //                 "path": highResUrl,
+        //                 "hwaccel_args": highHwacclArgs,
+        //                 "input_args": "preset-rtsp-generic",
+        //                 "roles": [
+        //                     "record"
+        //                 ]
+        //             },
+        //             {
+        //                 "path": lowResUrl,
+        //                 "hwaccel_args": lowHwacclArgs,
+        //                 "input_args": "preset-rtsp-generic",
+        //                 "roles": [
+        //                     "detect",
+        //                     "audio"
+        //                 ]
+        //             }
+        //         ]
+        //     }
+        // };
+        // const currentConfig = await this.getConfiguration();
+        // const newConfig = {
+        //     ...currentConfig,
+        //     cameras: {
+        //         ...currentConfig.cameras,
+        //         [cameraName]: cameraObj,
+        //     }
+        // };
+
+        // const response = await baseFrigateApi({
+        //     apiUrl: this.storageSettings.values.serverUrl,
+        //     service: 'config/save',
+        //     params: { save_option: 'saveonly' },
+        //     body: newConfig,
+        //     method: "POST"
+        // });
+        // logger.log(response);
+    }
+
     async getDevice(nativeId: string) {
         if (nativeId === objectDetectorNativeId)
             return this.objectDetectorDevice ||= new FrigateBridgeObjectDetector(objectDetectorNativeId, this);
@@ -276,7 +419,8 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
             return this.motionDetectorDevice ||= new FrigateBridgeMotionDetector(motionDetectorNativeId, this);
         if (nativeId === videoclipsNativeId)
             return this.videoclipsDevice ||= new FrigateBridgeVideoclips(videoclipsNativeId, this);
-        // TODO: Implement birdseye camera
+        if (nativeId === birdseyeCameraNativeId)
+            return this.birdseyeCamera ||= new FrigateBridgeBirdseyeCamera(birdseyeCameraNativeId, this);
     }
 
     async releaseDevice(id: string, nativeId: string): Promise<void> {
@@ -286,13 +430,9 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
         return this.storageSettings.putSetting(key, value);
     }
 
-    async getMqttClient() {
-        return await super.getMqttClient('scrypted_frigate_object_detector');
-    }
-
     async getSettings() {
         try {
-            const settings = await super.getSettings();
+            const settings = await this.storageSettings.getSettings();
             return settings;
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);

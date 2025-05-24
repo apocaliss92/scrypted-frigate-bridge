@@ -1,11 +1,11 @@
 import { ObjectsDetected } from '@scrypted/sdk';
-import axios from 'axios';
+import axios, { Method } from 'axios';
 import { name } from '../package.json';
 
 export const objectDetectorNativeId = 'frigateObjectDetector';
 export const motionDetectorNativeId = 'frigateMotionDetector';
 export const videoclipsNativeId = 'frigateVideoclips';
-export const cameraNativeId = 'frigateBirdseyeCamera';
+export const birdseyeCameraNativeId = 'frigateBirdseyeCamera';
 
 export const FRIGATE_OBJECT_DETECTOR_INTERFACE = `${name}:objectDetector`;
 export const FRIGATE_MOTION_DETECTOR_INTERFACE = `${name}:motionDetector`;
@@ -97,17 +97,27 @@ export const convertFrigateBoxToScryptedBox = (frigateBox: [number, number, numb
     return [xMin, yMin, width, height];
 }
 
-export const baseFrigateApi = (props: {
+export const baseFrigateApi = <T = any>(props: {
     apiUrl: string;
     service: string;
     params?: any;
+    body?: any;
+    method?: Method;
 }) => {
-    const { apiUrl, service, params } = props;
+    const { apiUrl, service, params, body, method = 'GET' } = props;
 
     const url = `${apiUrl}/${service}`;
-    return axios.get<any>(url.toString(), {
-        params
-    });
+    return axios.request<T>({
+        method,
+        url: url.toString(),
+        params,
+        data: body
+    })
 }
 
 export type AudioType = 'dBFS' | 'rms' | string;
+
+export const toSnakeCase = (str: string) => str
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase();

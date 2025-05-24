@@ -26,7 +26,7 @@ export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<an
 
     async onFrigateMotionEvent(value: any) {
         const logger = this.getLogger();
-        logger.log('MOTION RECEIVED', value);
+        logger.log('Motion update received', value);
         const newMotionValue = value === 'ON';
         if (newMotionValue !== this.motionDetected) {
             this.motionDetected = newMotionValue;
