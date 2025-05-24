@@ -31,7 +31,7 @@ export default class FrigateBridgeVideoclips extends BasePlugin implements Mixin
 
     public getLogger(device?: ScryptedDeviceBase) {
         const newLogger = getBaseLogger({
-            deviceConsole: device ? this.currentMixinsMap[device.id].console : this.console,
+            console: device ? this.currentMixinsMap[device.id].console : this.console,
             storage: this.storageSettings,
             friendlyName: `scrypted_frigate_videoclips_${device ? device?.id : 'device'}`
         });

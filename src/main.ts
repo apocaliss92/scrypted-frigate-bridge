@@ -54,6 +54,11 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
         this.initData().catch(logger.log);
     }
 
+    getLogger() {
+        return super.getLoggerInternal({});
+
+    }
+
     async initData() {
         const logger = this.getLogger();
 

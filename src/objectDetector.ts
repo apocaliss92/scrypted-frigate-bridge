@@ -15,12 +15,6 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
             baseGroupName: '',
             mqttAlwaysEnabled: true
         }),
-        eventsTopic: {
-            title: 'Events topic',
-            defaultValue: 'frigate/events',
-            type: 'string',
-            onPut: async () => await this.startMqttListener(),
-        },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
     currentMixinsMap: Record<string, FrigateBridgeObjectDetectorMixin> = {};
@@ -56,12 +50,13 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
     }
 
     async startMqttListener() {
-        const { eventsTopic } = this.storageSettings.values;
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();
+        const eventsTopic = `frigate/events`;
         const audioTopic = `frigate/+/audio/+`;
+        const motionTopic = `frigate/+/motion`;
 
-        await mqttClient.subscribe([eventsTopic, audioTopic], async (messageTopic, message) => {
+        await mqttClient.subscribe([eventsTopic, audioTopic, motionTopic], async (messageTopic, message) => {
             if (messageTopic === eventsTopic) {
                 const obj: FrigateEvent = JSON.parse(message.toString());
                 logger.debug(`Event received: ${JSON.stringify(obj)}`);
@@ -76,9 +71,9 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
                     await foundMixin.onFrigateDetectionEvent(obj);
                 }
             } else {
-                // frigate/salone/audio/speec rms dBFS
-                const [_, camera, __, type] = messageTopic.split('/');
-                logger.debug(`Audio message received ${messageTopic} ${message}: ${camera} ${type}`);
+                // frigate/salone/audio/speech rms dBFS
+                // frigate/salone/motion
+                const [_, camera, eventType, eventSubType] = messageTopic.split('/');
 
                 const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
@@ -87,7 +82,13 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
                 });
 
                 if (foundMixin) {
-                    await foundMixin.onFrigateAudioEvent(type, message);
+                    if (eventType === 'motion') {
+                        logger.info(`Motion message received ${messageTopic} ${message}: ${camera}`);
+                        await foundMixin.onFrigateMotionEvent(message);
+                    } else if (eventType === 'audio') {
+                        logger.info(`Audio message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
+                        await foundMixin.onFrigateAudioEvent(eventSubType, message);
+                    }
                 }
             }
         });
@@ -102,7 +103,7 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
     }
 
     getLogger(device?: ScryptedDeviceBase) {
-        let logger = super.getLogger();
+        let logger = super.getLoggerInternal({});
         if (device) {
             logger = this.currentMixinsMap[device.id]?.getLogger() ?? logger;
         }
@@ -112,7 +113,6 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
 
     async getSettings() {
         try {
-            this.storageSettings.settings.info.hide = true;
             this.storageSettings.settings.devNotifier.hide = true;
             const settings = await super.getSettings();
             return settings;

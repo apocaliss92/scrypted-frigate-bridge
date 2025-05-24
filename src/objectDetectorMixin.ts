@@ -3,9 +3,7 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionClass, detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { AudioType, baseFrigateApi, convertFrigateBoxToScryptedBox, FrigateEvent, FrigateObjectDetection } from "./utils";
-import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
-import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
+import { AudioType, convertFrigateBoxToScryptedBox, FrigateEvent, FrigateObjectDetection } from "./utils";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
     storageSettings = new StorageSettings(this, {
@@ -14,6 +12,12 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             type: 'string',
             choices: [],
             immediate: true,
+        },
+        motion: {
+            title: 'Import motion activity',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false,
         },
         labels: {
             title: 'Labels to import',
@@ -146,8 +150,20 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             }
             this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
         } else {
-            logger.debug('Event skipped', audioType, value);
+            logger.info('Audio event skipped', audioType, value);
         }
+    }
+
+    async onFrigateMotionEvent(value: any) {
+        const { motion } = this.storageSettings.values;
+        const logger = this.getLogger();
+
+        if (!motion) {
+            logger.debug('Motion event skipped', value);
+            return;
+        }
+
+        this.motionDetected = value === 'ON';
     }
 
     async getMixinSettings(): Promise<Setting[]> {
@@ -180,14 +196,18 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         logger.info('Releasing mixin');
     }
 
-    public getLogger() {
-        if (!this.logger) {
-            const newLogger = getBaseLogger({
-                deviceConsole: this.console,
+    public getLogger(forceNew?: boolean) {
+        if (!this.logger || forceNew) {
+            const newLogger = this.plugin.getLoggerInternal({
+                console: this.console,
                 storage: this.storageSettings,
             });
 
-            this.logger = newLogger;
+            if (forceNew) {
+                return newLogger;
+            } else {
+                this.logger = newLogger;
+            }
         }
 
         return this.logger;

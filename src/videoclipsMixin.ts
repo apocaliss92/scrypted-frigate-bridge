@@ -27,8 +27,21 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
         this.plugin.currentMixinsMap[this.id] = this;
     }
 
-    getLogger() {
-        return this.plugin.getLogger(this.cameraDevice);
+    public getLogger(forceNew?: boolean) {
+        if (!this.logger || forceNew) {
+            const newLogger = this.plugin.getLoggerInternal({
+                console: this.console,
+                storage: this.storageSettings,
+            });
+
+            if (forceNew) {
+                return newLogger;
+            } else {
+                this.logger = newLogger;
+            }
+        }
+
+        return this.logger;
     }
 
     getVideoclipUrls(eventId: string) {
