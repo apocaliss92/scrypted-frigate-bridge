@@ -1,8 +1,14 @@
+import { ObjectsDetected } from '@scrypted/sdk';
 import axios from 'axios';
 import { name } from '../package.json';
-import sdk, { ObjectsDetected } from '@scrypted/sdk';
+
+export const objectDetectorNativeId = 'frigateObjectDetector';
+export const motionDetectorNativeId = 'frigateMotionDetector';
+export const videoclipsNativeId = 'frigateVideoclips';
+export const cameraNativeId = 'frigateBirdseyeCamera';
 
 export const FRIGATE_OBJECT_DETECTOR_INTERFACE = `${name}:objectDetector`;
+export const FRIGATE_MOTION_DETECTOR_INTERFACE = `${name}:motionDetector`;
 export const FRIGATE_VIDEOCLIPS_INTERFACE = `${name}:videoclips`;
 
 export type FrigateObjectDetection = ObjectsDetected & { frigateEvent: FrigateEvent };

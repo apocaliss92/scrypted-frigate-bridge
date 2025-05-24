@@ -13,12 +13,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             choices: [],
             immediate: true,
         },
-        motion: {
-            title: 'Import motion activity',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false,
-        },
         labels: {
             title: 'Labels to import',
             type: 'string',
@@ -152,18 +146,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         } else {
             logger.info('Audio event skipped', audioType, value);
         }
-    }
-
-    async onFrigateMotionEvent(value: any) {
-        const { motion } = this.storageSettings.values;
-        const logger = this.getLogger();
-
-        if (!motion) {
-            logger.debug('Motion event skipped', value);
-            return;
-        }
-
-        this.motionDetected = value === 'ON';
     }
 
     async getMixinSettings(): Promise<Setting[]> {

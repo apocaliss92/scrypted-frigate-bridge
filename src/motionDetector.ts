@@ -2,10 +2,10 @@ import { MixinProvider, ScryptedDeviceType, ScryptedInterface, SettingValue, Wri
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
-import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
-import { FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent } from "./utils";
+import { FrigateBridgeMotionDetectorMixin } from "./motionDetectorMixin";
+import { FRIGATE_MOTION_DETECTOR_INTERFACE } from "./utils";
 
-export default class FrigateBridgeObjectDetector extends BasePlugin implements MixinProvider {
+export default class FrigateBridgeMotionDetector extends BasePlugin implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
         ...getBaseSettings({
             onPluginSwitch: (_, enabled) => {
@@ -17,12 +17,12 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
         }),
     };
     storageSettings = new StorageSettings(this, this.initStorage);
-    currentMixinsMap: Record<string, FrigateBridgeObjectDetectorMixin> = {};
+    currentMixinsMap: Record<string, FrigateBridgeMotionDetectorMixin> = {};
     plugin: FrigateBridgePlugin;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
         super(nativeId, {
-            pluginFriendlyName: 'Frigate Object Detector',
+            pluginFriendlyName: 'Frigate Motion Detector',
         });
         this.plugin = plugin;
 
@@ -52,38 +52,22 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
     async startMqttListener() {
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();
-        const eventsTopic = `frigate/events`;
-        const audioTopic = `frigate/+/audio/+`;
+        const motionTopic = `frigate/+/motion`;
 
-        await mqttClient.subscribe([eventsTopic, audioTopic], async (messageTopic, message) => {
-            if (messageTopic === eventsTopic) {
-                const obj: FrigateEvent = JSON.parse(message.toString());
-                logger.debug(`Event received: ${JSON.stringify(obj)}`);
+        await mqttClient.subscribe([motionTopic], async (messageTopic, message) => {
+            const [_, camera, eventType] = messageTopic.split('/');
 
+            if (eventType === 'motion') {
+                // frigate/salone/motion
+                logger.info(`Motion message received ${messageTopic} ${message}: ${camera}`);
                 const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
 
-                    return cameraName === obj.after.camera;
+                    return cameraName === camera;
                 });
 
                 if (foundMixin) {
-                    await foundMixin.onFrigateDetectionEvent(obj);
-                }
-            } else {
-                const [_, camera, eventType, eventSubType] = messageTopic.split('/');
-
-                if (eventType === 'audio') {
-                    // frigate/salone/audio/speech rms dBFS
-                    logger.info(`Audio message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
-                    const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
-                        const { cameraName } = mixin.storageSettings.values;
-
-                        return cameraName === camera;
-                    });
-
-                    if (foundMixin) {
-                        await foundMixin.onFrigateAudioEvent(eventSubType, message);
-                    }
+                    await foundMixin.onFrigateMotionEvent(message);
                 }
             }
         });
@@ -94,7 +78,7 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
     }
 
     async getMqttClient() {
-        return await super.getMqttClient('scrypted_frigate_object_detector');
+        return await super.getMqttClient('scrypted_frigate_motion_detector');
     }
 
     getLogger() {
@@ -117,7 +101,8 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
             (interfaces.includes(ScryptedInterface.VideoCamera) || interfaces.includes(ScryptedInterface.Camera))) {
             return [
                 ScryptedInterface.Settings,
-                FRIGATE_OBJECT_DETECTOR_INTERFACE
+                ScryptedInterface.MotionSensor,
+                FRIGATE_MOTION_DETECTOR_INTERFACE
             ];
         }
 
@@ -125,13 +110,13 @@ export default class FrigateBridgeObjectDetector extends BasePlugin implements M
     }
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
-        return new FrigateBridgeObjectDetectorMixin({
+        return new FrigateBridgeMotionDetectorMixin({
             mixinDevice,
             mixinDeviceInterfaces,
             mixinDeviceState,
             mixinProviderNativeId: this.nativeId,
-            group: 'Frigate Object Detector',
-            groupKey: 'frigateObjectDetector',
+            group: 'Frigate Motion Detector',
+            groupKey: 'frigateMotionDetector',
         }, this)
     }
 

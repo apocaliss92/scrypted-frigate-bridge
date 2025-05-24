@@ -5,11 +5,8 @@ import FrigateBridgeObjectDetector from "./objectDetector";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 import http from 'http';
-import { baseFrigateApi } from "./utils";
-
-export const objectDetectorNativeId = 'frigateObjectDetector'
-const videoclipsNativeId = 'frigateVideoclips'
-const cameraNativeId = 'frigateBirdseyeCamera'
+import { baseFrigateApi, cameraNativeId, motionDetectorNativeId, objectDetectorNativeId, videoclipsNativeId } from "./utils";
+import FrigateBridgeMotionDetector from "./motionDetector";
 
 export default class FrigateBridgePlugin extends BasePlugin implements DeviceProvider, HttpRequestHandler {
     initStorage: StorageSettingsDict<string> = {
@@ -22,6 +19,7 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
             title: 'Import Birdseye camera',
             type: 'boolean',
             immediate: true,
+            hide: true,
             onPut: async (_, active) => await this.executeCameraDiscovery(active)
         },
         labels: {
@@ -42,6 +40,7 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
     storageSettings = new StorageSettings(this, this.initStorage);
 
     objectDetectorDevice: FrigateBridgeObjectDetector;
+    motionDetectorDevice: FrigateBridgeMotionDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
     mainInterval: NodeJS.Timeout;
 
@@ -94,20 +93,20 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
         );
         await sdk.deviceManager.onDeviceDiscovered(
             {
+                name: 'Frigate Motion Detector',
+                nativeId: motionDetectorNativeId,
+                interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
+                type: ScryptedDeviceType.API,
+            }
+        );
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
                 name: 'Frigate Videoclips',
                 nativeId: videoclipsNativeId,
                 interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
                 type: ScryptedDeviceType.API,
             }
         );
-        //     await sdk.deviceManager.onDeviceDiscovered(
-        //         {
-        //             name: 'Advanced notifier NVR notifier',
-        //             nativeId: defaultNotifierNativeId,
-        //             interfaces: [ScryptedInterface.Notifier],
-        //             type: ScryptedDeviceType.Notifier,
-        //         },
-        //     );
 
         //     await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
     }
@@ -135,7 +134,6 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
 
         try {
             const [_, __, ___, ____, _____, webhook] = url.pathname.split('/');
-            // const [_, __, ___, ____, webhook] = url.pathname.split('/');
             const { deviceId, eventId, parameters } = JSON.parse(params);
             const dev: FrigateBridgeVideoclipsMixin = this.videoclipsDevice.currentMixinsMap[deviceId];
             const devConsole = dev.getLogger();
@@ -274,6 +272,8 @@ export default class FrigateBridgePlugin extends BasePlugin implements DevicePro
     async getDevice(nativeId: string) {
         if (nativeId === objectDetectorNativeId)
             return this.objectDetectorDevice ||= new FrigateBridgeObjectDetector(objectDetectorNativeId, this);
+        if (nativeId === motionDetectorNativeId)
+            return this.motionDetectorDevice ||= new FrigateBridgeMotionDetector(motionDetectorNativeId, this);
         if (nativeId === videoclipsNativeId)
             return this.videoclipsDevice ||= new FrigateBridgeVideoclips(videoclipsNativeId, this);
         // TODO: Implement birdseye camera
