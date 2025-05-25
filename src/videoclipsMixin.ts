@@ -51,17 +51,24 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
     }
 
     async getVideoclipWebhookUrls(eventId: string) {
-        const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
-        const [endpoint, parameters] = cloudEndpoint.split('?') ?? '';
-        const params = {
-            deviceId: this.id,
-            eventId,
+        const logger = this.getLogger();
+
+        try {
+            const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
+            const [endpoint, parameters] = cloudEndpoint.split('?') ?? '';
+            const params = {
+                deviceId: this.id,
+                eventId,
+            }
+
+            const videoclipUrl = `${endpoint}videoclip?params=${JSON.stringify(params)}&${parameters}`;
+            const thumbnailUrl = `${endpoint}thumbnail?params=${JSON.stringify(params)}&${parameters}`;
+
+            return { videoclipUrl, thumbnailUrl };
+        } catch (e) {
+            logger.log(`Error fetching cloud endpoint`, e);
+            return {};
         }
-
-        const videoclipUrl = `${endpoint}videoclip?params=${JSON.stringify(params)}&${parameters}`;
-        const thumbnailUrl = `${endpoint}thumbnail?params=${JSON.stringify(params)}&${parameters}`;
-
-        return { videoclipUrl, thumbnailUrl };
     }
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
