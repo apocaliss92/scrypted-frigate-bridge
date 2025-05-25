@@ -61,14 +61,12 @@ export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<an
         logger.info('Releasing mixin');
     }
 
-    public getLogger() {
+    getLogger() {
         if (!this.logger) {
-            const newLogger = this.plugin.getLoggerInternal({
+            this.logger = this.plugin.plugin.getLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });
-
-            this.logger = newLogger;
         }
 
         return this.logger;

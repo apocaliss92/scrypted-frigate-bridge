@@ -1,16 +1,29 @@
-import { Setting } from "@scrypted/sdk";
+import { MediaObject, PictureOptions, Setting } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import EventEmitter from "events";
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
-import { Destroyable, RtspCamera, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
+import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";
-import { PictureOptions, MediaObject } from "@scrypted/sdk";
 
 class FrigateBridgeBirdseyeCamera extends RtspSmartCamera {
     takeSmartCameraPicture(options?: PictureOptions): Promise<MediaObject> {
-        throw new Error("Method not implemented.");
+        return null;
     }
-    listenEvents(): Promise<Destroyable> {
-        throw new Error("Method not implemented.");
+
+    async listenEvents(): Promise<Destroyable> {
+        const events = new EventEmitter();
+        const ret: Destroyable = {
+            on: function (eventName: string | symbol, listener: (...args: any[]) => void): void {
+                events.on(eventName, listener);
+            },
+            destroy: async () => {
+            },
+            emit: function (eventName: string | symbol, ...args: any[]): boolean {
+                return events.emit(eventName, ...args);
+            }
+        };
+
+        return ret;
     }
     videoStreamOptions: Promise<UrlMediaStreamOptions[]>;
 

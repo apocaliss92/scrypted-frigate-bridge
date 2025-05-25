@@ -27,18 +27,12 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
         this.plugin.currentMixinsMap[this.id] = this;
     }
 
-    public getLogger(forceNew?: boolean) {
-        if (!this.logger || forceNew) {
-            const newLogger = this.plugin.getLoggerInternal({
+    getLogger() {
+        if (!this.logger) {
+            this.logger = this.plugin.plugin.getLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });
-
-            if (forceNew) {
-                return newLogger;
-            } else {
-                this.logger = newLogger;
-            }
         }
 
         return this.logger;

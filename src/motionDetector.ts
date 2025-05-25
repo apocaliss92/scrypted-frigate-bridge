@@ -1,32 +1,26 @@
-import { MixinProvider, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeMotionDetectorMixin } from "./motionDetectorMixin";
 import { FRIGATE_MOTION_DETECTOR_INTERFACE } from "./utils";
 
-export default class FrigateBridgeMotionDetector extends BasePlugin implements MixinProvider {
+export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
-        ...getBaseSettings({
-            onPluginSwitch: (_, enabled) => {
-                this.startStop(enabled);
-            },
-            hideHa: true,
-            baseGroupName: '',
-            mqttAlwaysEnabled: true
-        }),
+        logLevel: {
+            ...logLevelSetting,
+        },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
     currentMixinsMap: Record<string, FrigateBridgeMotionDetectorMixin> = {};
     plugin: FrigateBridgePlugin;
+    logger: Console;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
-        super(nativeId, {
-            pluginFriendlyName: 'Frigate Motion Detector',
-        });
+        super(nativeId);
         this.plugin = plugin;
 
-        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+        this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
     async startStop(enabled: boolean) {
@@ -38,7 +32,6 @@ export default class FrigateBridgeMotionDetector extends BasePlugin implements M
     }
 
     async stop() {
-        await this.mqttClient?.disconnect();
     }
 
     async start() {
@@ -78,17 +71,23 @@ export default class FrigateBridgeMotionDetector extends BasePlugin implements M
     }
 
     async getMqttClient() {
-        return await super.getMqttClient('scrypted_frigate_motion_detector');
+        return await this.plugin.getMqttClient();
     }
 
     getLogger() {
-        return super.getLoggerInternal({});
+        if (!this.logger) {
+            this.logger = this.plugin.getLogger({
+                console: this.console,
+                storage: this.storageSettings,
+            });
+        }
+
+        return this.logger;
     }
 
     async getSettings() {
         try {
-            this.storageSettings.settings.devNotifier.hide = true;
-            const settings = await super.getSettings();
+            const settings = await this.storageSettings.getSettings();
             return settings;
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);

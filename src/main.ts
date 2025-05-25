@@ -1,7 +1,8 @@
 import sdk, { DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
+import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
 import FrigateBridgeMotionDetector from "./motionDetector";
@@ -10,7 +11,8 @@ import { baseFrigateApi, birdseyeCameraNativeId, motionDetectorNativeId, objectD
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 
-type StorageKey = 'serverUrl' |
+type StorageKey = BaseSettingsKey |
+    'serverUrl' |
     'labels' |
     'cameras' |
     'exportCameraDevice' |
@@ -20,9 +22,13 @@ type StorageKey = 'serverUrl' |
 
 export default class FrigateBridgePlugin extends RtspProvider implements DeviceProvider, HttpRequestHandler {
     initStorage: StorageSettingsDict<StorageKey> = {
-        logLevel: {
-            ...logLevelSetting,
-        },
+        ...getBaseSettings({
+            onPluginSwitch: (_, enabled) => {
+                this.startStop(enabled);
+            },
+            hideHa: true,
+            baseGroupName: '',
+        }),
         serverUrl: {
             title: 'Frigate server API URL',
             description: 'URL to the Frigate server. Example: http://192.168.1.100:5000/api',
@@ -70,6 +76,9 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     birdseyeCamera: FrigateBridgeBirdseyeCamera;
     mainInterval: NodeJS.Timeout;
     logger: Console;
+    initializingMqtt = false;
+    public mqttClient: MqttClient;
+    config: any;
 
     constructor(nativeId: string) {
         super(nativeId);
@@ -78,8 +87,42 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         this.initData().catch(logger.log);
     }
 
-    getLogger() {
-        if (!this.logger) {
+    async startStop(enabled: boolean) {
+        if (enabled) {
+            await this.start();
+        } else {
+            await this.stop();
+        }
+    }
+
+    async stop() {
+        await this.motionDetectorDevice?.stop();
+        await this.objectDetectorDevice?.stop();
+        await this.mqttClient?.disconnect();
+    }
+
+    async start() {
+        try {
+            await this.setupMqttClient();
+            await this.motionDetectorDevice?.start();
+            await this.objectDetectorDevice?.start();
+        } catch (e) {
+            this.getLogger().log(`Error in initFlow`, e);
+        }
+    }
+
+    getLogger(props?: {
+        console: Console,
+        storage: StorageSettings<any>,
+    }) {
+        const { console, storage } = props ?? {};
+
+        if (console && storage) {
+            return getBaseLogger({
+                console,
+                storage,
+            });
+        } else if (!this.logger) {
             this.logger = getBaseLogger({
                 console: this.console,
                 storage: this.storageSettings,
@@ -87,6 +130,42 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         }
 
         return this.logger;
+    }
+
+    private async setupMqttClient() {
+        const { useMqttPluginCredentials, pluginEnabled } = this.storageSettings.values;
+        if (pluginEnabled) {
+            this.initializingMqtt = true;
+            const logger = this.getLogger();
+
+            if (this.mqttClient) {
+                this.mqttClient.disconnect();
+                this.mqttClient = undefined;
+            }
+
+            try {
+                this.mqttClient = await getMqttBasicClient({
+                    logger,
+                    useMqttPluginCredentials,
+                    mqttHost: this.storageSettings.getItem('mqttHost'),
+                    mqttUsename: this.storageSettings.getItem('mqttUsename'),
+                    mqttPassword: this.storageSettings.getItem('mqttPassword'),
+                    clientId: 'scrypted_frigate_bridge',
+                });
+            } catch (e) {
+                logger.log('Error setting up MQTT client', e);
+            } finally {
+                this.initializingMqtt = false;
+            }
+        }
+    }
+
+    async getMqttClient() {
+        if (!this.mqttClient && !this.initializingMqtt) {
+            await this.setupMqttClient();
+        }
+
+        return this.mqttClient;
     }
 
     getScryptedDeviceCreator(): string {
@@ -115,9 +194,9 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             logger.log(`Labels found: ${labels}`);
             this.putSetting('labels', [...labels, 'dBFS', 'rms']);
 
-            const config = await this.getConfiguration();
+            this.config = await this.getConfiguration();
 
-            const cameras = Object.keys((config ?? {})?.cameras);
+            const cameras = Object.keys((this.config ?? {})?.cameras);
             logger.log(`Cameras found: ${cameras}`);
             this.putSetting('cameras', cameras);
         }
@@ -151,6 +230,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         );
 
         await this.executeCameraDiscovery(this.storageSettings.values.enableBirdseyeCamera);
+        await this.startStop(this.storageSettings.values.pluginEnabled);
     }
 
     async executeCameraDiscovery(active: boolean) {
@@ -432,6 +512,8 @@ ${cameraName}:
 
     async getSettings() {
         try {
+            applySettingsShow(this.storageSettings);
+            this.storageSettings.settings.mqttEnabled.hide = true;
             const settings = await this.storageSettings.getSettings();
             return settings;
         } catch (e) {

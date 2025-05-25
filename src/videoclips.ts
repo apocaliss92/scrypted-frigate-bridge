@@ -1,17 +1,14 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { BasePlugin, getBaseLogger } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FRIGATE_VIDEOCLIPS_INTERFACE } from "./utils";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 
-export default class FrigateBridgeVideoclips extends BasePlugin implements MixinProvider {
+export default class FrigateBridgeVideoclips extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
-        debug: {
-            title: 'Log debug messages',
-            type: 'boolean',
-            defaultValue: false,
-            immediate: true,
+        logLevel: {
+            ...logLevelSetting,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
@@ -19,9 +16,7 @@ export default class FrigateBridgeVideoclips extends BasePlugin implements Mixin
     plugin: FrigateBridgePlugin;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
-        super(nativeId, {
-            pluginFriendlyName: 'Frigate Videoclips',
-        });
+        super(nativeId);
         this.plugin = plugin;
     }
 
@@ -41,7 +36,7 @@ export default class FrigateBridgeVideoclips extends BasePlugin implements Mixin
 
     async getSettings() {
         try {
-            const settings = await super.getSettings();
+            const settings = await this.storageSettings.getSettings();
             return settings;
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);

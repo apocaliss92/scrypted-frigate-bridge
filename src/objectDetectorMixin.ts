@@ -1,4 +1,4 @@
-import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionClass, detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
@@ -178,18 +178,12 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         logger.info('Releasing mixin');
     }
 
-    public getLogger(forceNew?: boolean) {
-        if (!this.logger || forceNew) {
-            const newLogger = this.plugin.getLoggerInternal({
+    getLogger() {
+        if (!this.logger) {
+            this.logger = this.plugin.plugin.getLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });
-
-            if (forceNew) {
-                return newLogger;
-            } else {
-                this.logger = newLogger;
-            }
         }
 
         return this.logger;
