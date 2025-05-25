@@ -53,9 +53,14 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
     async getVideoclipWebhookUrls(eventId: string) {
         const logger = this.getLogger();
 
+        let url: string;
         try {
-            const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
-            const [endpoint, parameters] = cloudEndpoint.split('?') ?? '';
+            try {
+                url = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
+            } catch {
+                url = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true })
+            }
+            const [endpoint, parameters] = url.split('?') ?? '';
             const params = {
                 deviceId: this.id,
                 eventId,
@@ -99,7 +104,11 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
             const events = res.data as FrigateVideoClip[];
             const filteredEvents = events
-                .filter(event => event.has_clip && event.has_snapshot && event.data.type === 'object');
+                .filter(event =>
+                    event.has_clip &&
+                    event.has_snapshot &&
+                    event.data.type === 'object'
+                );
             // .filter(event => event.has_clip && event.has_snapshot && event.data.max_severity === 'alert');
 
             const videoclips: VideoClip[] = [];
