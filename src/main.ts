@@ -510,6 +510,8 @@ ${cameraName}:
             return this.motionDetectorDevice ||= new FrigateBridgeMotionDetector(motionDetectorNativeId, this);
         if (nativeId === videoclipsNativeId)
             return this.videoclipsDevice ||= new FrigateBridgeVideoclips(videoclipsNativeId, this);
+        if (nativeId === birdseyeCameraNativeId)
+            return this.birdseyeCamera ||= new FrigateBridgeBirdseyeCamera(birdseyeCameraNativeId, this);
         if (nativeId.startsWith(importedCameraNativeIdPrefix)) {
             const found = this.camerasMap[nativeId];
 
@@ -571,15 +573,6 @@ ${cameraName}:
         const device = await this.getDevice(cameraNativeId) as FrigateBridgeCamera;
         device.storageSettings.putSetting('cameraName', cameraName);
 
-        // const videoclipsMixin = sdk.systemManager.getDeviceById(pluginId, videoclipsNativeId);
-        // const motionDetectorMixin = sdk.systemManager.getDeviceById(pluginId, motionDetectorNativeId);
-        // const objectDetectorMixin = sdk.systemManager.getDeviceById(pluginId, objectDetectorNativeId);
-
-        // const currentMixins = device.mixins;
-
-        // currentMixins.push(videoclipsMixin.id);
-        // currentMixins.push(motionDetectorMixin.id);
-        // currentMixins.push(objectDetectorMixin.id);
         return cameraNativeId;
     }
 }
