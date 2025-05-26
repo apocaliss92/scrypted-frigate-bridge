@@ -1,9 +1,10 @@
-import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import { MixinProvider, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
-import { FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent } from "./utils";
+import { birdseyeCameraNativeId, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, pluginId } from "./utils";
+import { AutoenableMixinProvider } from "@scrypted/common/src/autoenable-mixin-provider";
 
 export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -41,6 +42,14 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             this.getLogger().log(`Error in initFlow`, e);
         }
     }
+    
+    // async maybeEnableMixin(device: ScryptedDevice) {
+        // if (device.pluginId === pluginId && device.nativeId !== birdseyeCameraNativeId) {
+        //     super.maybeEnableMixin(device);
+        // } else {
+        //     return;
+        // }
+    // }
 
     async startMqttListener() {
         const mqttClient = await this.getMqttClient();

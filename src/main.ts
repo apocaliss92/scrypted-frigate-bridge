@@ -5,12 +5,12 @@ import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings, get
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
+import FrigateBridgeCamera from "./camera";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, pluginId, toSnakeCase, videoclipsNativeId } from "./utils";
+import { baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
-import FrigateBridgeCamera from "./camera";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
@@ -498,8 +498,6 @@ ${cameraName}:
         return [
             ScryptedInterface.VideoCameraConfiguration,
             ScryptedInterface.Camera,
-            ScryptedInterface.MotionSensor,
-            ScryptedInterface.VideoClips,
         ];
     }
 
@@ -527,6 +525,7 @@ ${cameraName}:
     }
 
     async releaseDevice(id: string, nativeId: string): Promise<void> {
+        delete this.camerasMap[nativeId];
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {

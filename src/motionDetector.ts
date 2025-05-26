@@ -42,6 +42,14 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
         }
     }
 
+    // async maybeEnableMixin(device: ScryptedDevice) {
+    //     if (device.pluginId === pluginId && device.nativeId !== birdseyeCameraNativeId) {
+    //         super.maybeEnableMixin(device);
+    //     } else {
+    //         return;
+    //     }
+    // }
+
     async startMqttListener() {
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();

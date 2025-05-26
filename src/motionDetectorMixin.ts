@@ -1,4 +1,4 @@
-import sdk, { MotionSensor, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import { MotionSensor, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import FrigateBridgeMotionDetector from "./motionDetector";
@@ -23,6 +23,17 @@ export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<an
         super(options);
 
         this.plugin.currentMixinsMap[this.id] = this;
+
+        const logger = this.getLogger();
+        this.init().catch(logger.error);
+    }
+
+    async init() {
+        if (this.pluginId === pluginId) {
+            const [_, cameraName] = this.nativeId.split('_');
+            await this.storageSettings.putSetting('cameraName', cameraName);
+            this.storageSettings.settings.cameraName.readonly = true;
+        }
     }
 
     async onFrigateMotionEvent(value: any) {
@@ -38,12 +49,6 @@ export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<an
         const logger = this.getLogger();
         try {
             this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
-
-            if (this.pluginId === pluginId) {
-                const [_, cameraName] = this.nativeId.split('_');
-                await this.storageSettings.putSetting('cameraName', cameraName);
-                this.storageSettings.settings.cameraName.readonly = true;
-            }
 
             return this.storageSettings.getSettings();
         } catch (e) {

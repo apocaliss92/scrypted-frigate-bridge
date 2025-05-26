@@ -1,9 +1,10 @@
-import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import { MixinProvider, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
-import { FRIGATE_VIDEOCLIPS_INTERFACE } from "./utils";
+import { birdseyeCameraNativeId, FRIGATE_VIDEOCLIPS_INTERFACE, pluginId } from "./utils";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
+import { AutoenableMixinProvider } from "@scrypted/common/src/autoenable-mixin-provider";
 
 export default class FrigateBridgeVideoclips extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -19,6 +20,14 @@ export default class FrigateBridgeVideoclips extends ScryptedDeviceBase implemen
         super(nativeId);
         this.plugin = plugin;
     }
+
+    // async maybeEnableMixin(device: ScryptedDevice) {
+    // if (device.pluginId === pluginId && device.nativeId !== birdseyeCameraNativeId) {
+    //     super.maybeEnableMixin(device);
+    // } else {
+    //     return;
+    // }
+    // }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
         return this.storageSettings.putSetting(key, value);

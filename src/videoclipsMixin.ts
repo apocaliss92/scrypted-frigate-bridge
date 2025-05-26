@@ -25,6 +25,17 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
         this.cameraDevice = sdk.systemManager.getDeviceById<ScryptedDeviceBase>(this.id);
 
         this.plugin.currentMixinsMap[this.id] = this;
+
+        const logger = this.getLogger();
+        this.init().catch(logger.error);
+    }
+
+    async init() {
+        if (this.pluginId === pluginId) {
+            const [_, cameraName] = this.nativeId.split('_');
+            await this.storageSettings.putSetting('cameraName', cameraName);
+            this.storageSettings.settings.cameraName.readonly = true;
+        }
     }
 
     getLogger() {
@@ -186,12 +197,6 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
     async getMixinSettings(): Promise<Setting[]> {
         try {
             this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
-
-            if (this.pluginId === pluginId) {
-                const [_, cameraName] = this.nativeId.split('_');
-                await this.storageSettings.putSetting('cameraName', cameraName);
-                this.storageSettings.settings.cameraName.readonly = true;
-            }
 
             return this.storageSettings.getSettings();
         } catch (e) {

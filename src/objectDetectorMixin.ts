@@ -48,6 +48,17 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         super(options);
 
         this.plugin.currentMixinsMap[this.id] = this;
+
+        const logger = this.getLogger();
+        this.init().catch(logger.error);
+    }
+
+    async init() {
+        if (this.pluginId === pluginId) {
+            const [_, cameraName] = this.nativeId.split('_');
+            await this.storageSettings.putSetting('cameraName', cameraName);
+            this.storageSettings.settings.cameraName.readonly = true;
+        }
     }
 
     getDetectionInput(detectionId: string, eventId?: any): Promise<MediaObject> {
@@ -153,12 +164,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             const classes = await this.getObjectTypes();
             this.storageSettings.settings.labels.choices = classes.classes;
             this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
-
-            if (this.pluginId === pluginId) {
-                const [_, cameraName] = this.nativeId.split('_');
-                await this.storageSettings.putSetting('cameraName', cameraName);
-                this.storageSettings.settings.cameraName.readonly = true;
-            }
 
             return this.storageSettings.getSettings();
         } catch (e) {
