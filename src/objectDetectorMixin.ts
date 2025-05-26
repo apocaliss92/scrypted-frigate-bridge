@@ -3,7 +3,7 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionClass, detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { AudioType, convertFrigateBoxToScryptedBox, FrigateEvent, FrigateObjectDetection } from "./utils";
+import { AudioType, convertFrigateBoxToScryptedBox, FrigateEvent, FrigateObjectDetection, pluginId } from "./utils";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
     storageSettings = new StorageSettings(this, {
@@ -153,6 +153,13 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             const classes = await this.getObjectTypes();
             this.storageSettings.settings.labels.choices = classes.classes;
             this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
+
+            if (this.pluginId === pluginId) {
+                const [_, cameraName] = this.nativeId.split('_');
+                await this.storageSettings.putSetting('cameraName', cameraName);
+                this.storageSettings.settings.cameraName.readonly = true;
+            }
+
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);

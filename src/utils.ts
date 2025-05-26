@@ -6,10 +6,12 @@ export const objectDetectorNativeId = 'frigateObjectDetector';
 export const motionDetectorNativeId = 'frigateMotionDetector';
 export const videoclipsNativeId = 'frigateVideoclips';
 export const birdseyeCameraNativeId = 'frigateBirdseyeCamera';
+export const importedCameraNativeIdPrefix = 'frigateCamera';
+export const pluginId = name;
 
-export const FRIGATE_OBJECT_DETECTOR_INTERFACE = `${name}:objectDetector`;
-export const FRIGATE_MOTION_DETECTOR_INTERFACE = `${name}:motionDetector`;
-export const FRIGATE_VIDEOCLIPS_INTERFACE = `${name}:videoclips`;
+export const FRIGATE_OBJECT_DETECTOR_INTERFACE = `${pluginId}:objectDetector`;
+export const FRIGATE_MOTION_DETECTOR_INTERFACE = `${pluginId}:motionDetector`;
+export const FRIGATE_VIDEOCLIPS_INTERFACE = `${pluginId}:videoclips`;
 
 export type FrigateObjectDetection = ObjectsDetected & { frigateEvent: FrigateEvent };
 

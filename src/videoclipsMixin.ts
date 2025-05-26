@@ -2,7 +2,7 @@ import sdk, { MediaObject, ScryptedDeviceBase, Setting, Settings, SettingValue, 
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
-import { baseFrigateApi, FrigateVideoClip } from "./utils";
+import { baseFrigateApi, FrigateVideoClip, pluginId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 
 export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
@@ -78,13 +78,19 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
         const { count, endTime, startTime } = options;
+        const { cameraName } = this.storageSettings.values;
         const logger = this.getLogger();
+
+        if (!cameraName) {
+            logger.log('Camera name not set');
+            return [];
+        }
 
         try {
             const service = `events`;
 
             const params = {
-                camera: this.storageSettings.values.cameraName,
+                camera: cameraName,
                 after: startTime / 1000,
                 before: endTime / 1000,
                 limit: count || 10000,
@@ -180,6 +186,13 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
     async getMixinSettings(): Promise<Setting[]> {
         try {
             this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
+
+            if (this.pluginId === pluginId) {
+                const [_, cameraName] = this.nativeId.split('_');
+                await this.storageSettings.putSetting('cameraName', cameraName);
+                this.storageSettings.settings.cameraName.readonly = true;
+            }
+
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);

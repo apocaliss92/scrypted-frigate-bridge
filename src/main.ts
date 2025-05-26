@@ -1,4 +1,4 @@
-import sdk, { DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
+import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
 import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
@@ -7,9 +7,10 @@ import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { baseFrigateApi, birdseyeCameraNativeId, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
+import { baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, pluginId, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
+import FrigateBridgeCamera from "./camera";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
@@ -20,7 +21,7 @@ type StorageKey = BaseSettingsKey |
     'logLevel' |
     'exportButton';
 
-export default class FrigateBridgePlugin extends RtspProvider implements DeviceProvider, HttpRequestHandler {
+export default class FrigateBridgePlugin extends RtspProvider implements DeviceProvider, HttpRequestHandler, DeviceCreator {
     initStorage: StorageSettingsDict<StorageKey> = {
         ...getBaseSettings({
             onPluginSwitch: (_, enabled) => {
@@ -74,6 +75,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     motionDetectorDevice: FrigateBridgeMotionDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
     birdseyeCamera: FrigateBridgeBirdseyeCamera;
+    camerasMap: Record<string, FrigateBridgeCamera> = {};
     mainInterval: NodeJS.Timeout;
     logger: Console;
     initializingMqtt = false;
@@ -492,6 +494,15 @@ ${cameraName}:
         // logger.log(response);
     }
 
+    getAdditionalInterfaces() {
+        return [
+            ScryptedInterface.VideoCameraConfiguration,
+            ScryptedInterface.Camera,
+            ScryptedInterface.MotionSensor,
+            ScryptedInterface.VideoClips,
+        ];
+    }
+
     async getDevice(nativeId: string) {
         if (nativeId === objectDetectorNativeId)
             return this.objectDetectorDevice ||= new FrigateBridgeObjectDetector(objectDetectorNativeId, this);
@@ -499,8 +510,18 @@ ${cameraName}:
             return this.motionDetectorDevice ||= new FrigateBridgeMotionDetector(motionDetectorNativeId, this);
         if (nativeId === videoclipsNativeId)
             return this.videoclipsDevice ||= new FrigateBridgeVideoclips(videoclipsNativeId, this);
-        if (nativeId === birdseyeCameraNativeId)
-            return this.birdseyeCamera ||= new FrigateBridgeBirdseyeCamera(birdseyeCameraNativeId, this);
+        if (nativeId.startsWith(importedCameraNativeIdPrefix)) {
+            const found = this.camerasMap[nativeId];
+
+            if (found) {
+                return found;
+            } else {
+                const [_, cameraName] = nativeId.split('_');
+                const newCamera = new FrigateBridgeCamera(nativeId, this, cameraName);
+                this.camerasMap[nativeId] = newCamera;
+                return newCamera;
+            }
+        }
     }
 
     async releaseDevice(id: string, nativeId: string): Promise<void> {
@@ -520,6 +541,46 @@ ${cameraName}:
             this.getLogger().log('Error in getSettings', e);
             return [];
         }
+    }
+
+    async getCreateDeviceSettings(): Promise<Setting[]> {
+        const config = await this.getConfiguration();
+        const cameraNames = Object.keys(config.cameras);
+        return [
+            {
+                key: 'cameraName',
+                title: 'Camera to import',
+                type: 'string',
+                choices: cameraNames
+            },
+        ]
+    }
+
+    async createDevice(settings: DeviceCreatorSettings, nativeId?: string): Promise<string> {
+        const cameraName = settings.cameraName as string;
+
+        if (!cameraName) {
+            this.console.log('Camera name is required');
+            return;
+        }
+
+        settings.newCamera = cameraName;
+        const cameraNativeId = `${importedCameraNativeIdPrefix}_${cameraName}`;
+        await super.createDevice(settings, cameraNativeId);
+
+        const device = await this.getDevice(cameraNativeId) as FrigateBridgeCamera;
+        device.storageSettings.putSetting('cameraName', cameraName);
+
+        // const videoclipsMixin = sdk.systemManager.getDeviceById(pluginId, videoclipsNativeId);
+        // const motionDetectorMixin = sdk.systemManager.getDeviceById(pluginId, motionDetectorNativeId);
+        // const objectDetectorMixin = sdk.systemManager.getDeviceById(pluginId, objectDetectorNativeId);
+
+        // const currentMixins = device.mixins;
+
+        // currentMixins.push(videoclipsMixin.id);
+        // currentMixins.push(motionDetectorMixin.id);
+        // currentMixins.push(objectDetectorMixin.id);
+        return cameraNativeId;
     }
 }
 
