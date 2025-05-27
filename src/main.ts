@@ -8,9 +8,10 @@ import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
 import FrigateBridgeCamera from "./camera";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
+import { animalClassifierNativeId, baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, vehicleClassifierNativeId, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
+import FrigateBridgeClassifier from "./classsifier";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
@@ -75,6 +76,8 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     motionDetectorDevice: FrigateBridgeMotionDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
     birdseyeCamera: FrigateBridgeBirdseyeCamera;
+    animalClassifier: FrigateBridgeClassifier;
+    vehicleClassifier: FrigateBridgeClassifier;
     camerasMap: Record<string, FrigateBridgeCamera> = {};
     mainInterval: NodeJS.Timeout;
     logger: Console;
@@ -230,6 +233,22 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                 type: ScryptedDeviceType.API,
             }
         );
+        // await sdk.deviceManager.onDeviceDiscovered(
+        //     {
+        //         name: 'Frigate Animal Classifier',
+        //         nativeId: animalClassifierNativeId,
+        //         interfaces: [ScryptedInterface.ObjectDetection, ScryptedInterface.ClusterForkInterface, 'CustomObjectDetection'],
+        //         type: ScryptedDeviceType.API,
+        //     }
+        // );
+        // await sdk.deviceManager.onDeviceDiscovered(
+        //     {
+        //         name: 'Frigate Vehicle Classifier',
+        //         nativeId: vehicleClassifierNativeId,
+        //         interfaces: [ScryptedInterface.ObjectDetection, ScryptedInterface.ClusterForkInterface, 'CustomObjectDetection'],
+        //         type: ScryptedDeviceType.API,
+        //     }
+        // );
 
         await this.executeCameraDiscovery(this.storageSettings.values.enableBirdseyeCamera);
         await this.startStop(this.storageSettings.values.pluginEnabled);
@@ -504,12 +523,22 @@ ${cameraName}:
     async getDevice(nativeId: string) {
         if (nativeId === objectDetectorNativeId)
             return this.objectDetectorDevice ||= new FrigateBridgeObjectDetector(objectDetectorNativeId, this);
+
         if (nativeId === motionDetectorNativeId)
             return this.motionDetectorDevice ||= new FrigateBridgeMotionDetector(motionDetectorNativeId, this);
+
         if (nativeId === videoclipsNativeId)
             return this.videoclipsDevice ||= new FrigateBridgeVideoclips(videoclipsNativeId, this);
+
         if (nativeId === birdseyeCameraNativeId)
             return this.birdseyeCamera ||= new FrigateBridgeBirdseyeCamera(birdseyeCameraNativeId, this);
+
+        if (nativeId === animalClassifierNativeId)
+            return this.animalClassifier ||= new FrigateBridgeClassifier(animalClassifierNativeId, this, 'Animal');
+
+        if (nativeId === vehicleClassifierNativeId)
+            return this.vehicleClassifier ||= new FrigateBridgeClassifier(vehicleClassifierNativeId, this, 'Vehicle');
+
         if (nativeId.startsWith(importedCameraNativeIdPrefix)) {
             const found = this.camerasMap[nativeId];
 

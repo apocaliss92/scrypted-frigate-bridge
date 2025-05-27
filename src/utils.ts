@@ -3,6 +3,8 @@ import axios, { Method } from 'axios';
 import { name } from '../package.json';
 
 export const objectDetectorNativeId = 'frigateObjectDetector';
+export const animalClassifierNativeId = 'frigateAnimalClassifier';
+export const vehicleClassifierNativeId = 'frigateVehicleClassifier';
 export const motionDetectorNativeId = 'frigateMotionDetector';
 export const videoclipsNativeId = 'frigateVideoclips';
 export const birdseyeCameraNativeId = 'frigateBirdseyeCamera';

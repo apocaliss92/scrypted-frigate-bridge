@@ -78,10 +78,16 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     async onFrigateDetectionEvent(event: FrigateEvent) {
         const { eventTypes, labels } = this.storageSettings.values;
         const boundingBox: ObjectDetectionResult['boundingBox'] = convertFrigateBoxToScryptedBox(event.after.box);
-        const className = detectionClassesDefaultMap[event.after.label] || event.after.label;
-        let label;
-        if (className !== event.after.label) {
-            label = event.after.label;
+        let className = event.after.label;
+        const [label, labelScore] = event.after.sub_label ?? [];
+        // const className = detectionClassesDefaultMap[event.after.label] || event.after.label;
+        // let label;
+        // if (className !== event.after.label) {
+        //     label = event.after.label;
+        // }
+
+        if (className === 'person' && label) {
+            className = 'face';
         }
 
         const logger = this.getLogger();
@@ -98,7 +104,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
         const detection: FrigateObjectDetection = {
             frigateEvent: event,
-            timestamp: event.after.start_time * 1000,
+            timestamp: Math.trunc(event.after.start_time * 1000),
             inputDimensions: [0, 0],
             detections: [
                 { className: 'motion', score: 1, boundingBox },
@@ -107,23 +113,23 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
                     score: event.after.score,
                     boundingBox,
                     label,
+                    labelScore,
                     movement: {
                         moving: event.after.active,
-                        firstSeen: event.after.start_time * 1000,
-                        lastSeen: event.after.end_time * 1000,
+                        firstSeen: Math.trunc(event.after.start_time * 1000),
+                        lastSeen: Math.trunc(event.after.end_time * 1000),
                     },
                     zones: event.after.current_zones,
                 },
             ]
         };
 
-        logger.log('Detection event kept', JSON.stringify(detection));
+        logger.log('Detection event forwarded', JSON.stringify(detection));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
     }
 
     async onFrigateAudioEvent(audioType: AudioType, value: any) {
         const { labels, cameraName } = this.storageSettings.values;
-        const className = DetectionClass.Audio;
         const now = Date.now();
 
         const isAudioLevelValue = ['dBFS', 'rms'].includes(audioType);
@@ -140,14 +146,14 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
                 inputDimensions: [0, 0],
                 detections: [
                     {
-                        className,
+                        className: isAudioLevelValue ? audioType : DetectionClass.Audio,
                         score: 1,
-                        label: audioType
+                        label: isAudioLevelValue ? undefined : audioType
                     },
                 ]
             };
 
-            const logMessage = `Audio event kept: ${JSON.stringify(detection)}`;
+            const logMessage = `Audio event forwarded: ${JSON.stringify(detection)}`;
             if (isAudioLevelValue) {
                 logger.debug(logMessage);
             } else {
