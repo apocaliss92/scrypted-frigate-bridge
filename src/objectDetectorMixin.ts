@@ -3,7 +3,7 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionClass, detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { AudioType, convertFrigateBoxToScryptedBox, FrigateEvent, FrigateObjectDetection, pluginId } from "./utils";
+import { AudioType, convertFrigateBoxToScryptedBox, FrigateEvent, FrigateObjectDetection, isAudioLevelValue, pluginId } from "./utils";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
     storageSettings = new StorageSettings(this, {
@@ -58,6 +58,14 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             const [_, cameraName] = this.nativeId.split('_');
             await this.storageSettings.putSetting('cameraName', cameraName);
             this.storageSettings.settings.cameraName.readonly = true;
+        }
+
+        const { labels } = this.storageSettings.values;
+        if (labels.some(label => isAudioLevelValue(label))) {
+            const fixedLabels = labels.filter(label =>
+                !isAudioLevelValue(label)
+            );
+            await this.storageSettings.putSetting('labels', fixedLabels);
         }
     }
 
@@ -132,33 +140,23 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         const { labels, cameraName } = this.storageSettings.values;
         const now = Date.now();
 
-        const isAudioLevelValue = ['dBFS', 'rms'].includes(audioType);
-        // const lastSent = this.lastAudioLevelsSent[audioType];
-        // const isTimePassed = isAudioLevelValue ? 
-        // !lastSent || now - lastSent > 1000 * 5 
-
         const logger = this.getLogger();
-        const parsedValue = isAudioLevelValue ? JSON.parse(value) : value;
-        if (labels?.includes(audioType) && (isAudioLevelValue || parsedValue === 'ON')) {
+        if (labels?.includes(audioType) && value === 'ON') {
             const detection: FrigateObjectDetection = {
                 frigateEvent: { type: 'new', after: { camera: cameraName } } as FrigateEvent,
                 timestamp: now,
                 inputDimensions: [0, 0],
                 detections: [
                     {
-                        className: isAudioLevelValue ? audioType : DetectionClass.Audio,
+                        className: DetectionClass.Audio,
                         score: 1,
-                        label: isAudioLevelValue ? undefined : audioType
+                        label: audioType
                     },
                 ]
             };
 
             const logMessage = `Audio event forwarded: ${JSON.stringify(detection)}`;
-            if (isAudioLevelValue) {
-                logger.debug(logMessage);
-            } else {
-                logger.log(logMessage);
-            }
+            logger.log(logMessage);
             this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
         } else {
             logger.info('Audio event skipped', audioType, value);

@@ -3,7 +3,8 @@ import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-sett
 import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeMotionDetectorMixin } from "./motionDetectorMixin";
-import { FRIGATE_MOTION_DETECTOR_INTERFACE } from "./utils";
+import { FRIGATE_MOTION_DETECTOR_INTERFACE, motionTopic } from "./utils";
+import { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
 export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -15,6 +16,7 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
     currentMixinsMap: Record<string, FrigateBridgeMotionDetectorMixin> = {};
     plugin: FrigateBridgePlugin;
     logger: Console;
+    mqttCb: MqttMessageCb;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
         super(nativeId);
@@ -42,20 +44,11 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
         }
     }
 
-    // async maybeEnableMixin(device: ScryptedDevice) {
-    //     if (device.pluginId === pluginId && device.nativeId !== birdseyeCameraNativeId) {
-    //         super.maybeEnableMixin(device);
-    //     } else {
-    //         return;
-    //     }
-    // }
-
     async startMqttListener() {
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();
-        const motionTopic = `frigate/+/motion`;
 
-        await mqttClient.subscribe([motionTopic], async (messageTopic, message) => {
+        this.mqttCb = async (messageTopic, message) => {
             const [_, camera, eventType] = messageTopic.split('/');
 
             if (eventType === 'motion') {
@@ -71,7 +64,9 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
                     await foundMixin.onFrigateMotionEvent(message);
                 }
             }
-        });
+        };
+
+        await mqttClient?.subscribe([motionTopic], this.mqttCb);
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
@@ -128,6 +123,7 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
     }
 
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
+        await this.plugin.mqttClient.unsubscribeWithCb([{ topic: motionTopic, cb: this.mqttCb }]);
         await mixinDevice.release();
     }
 }

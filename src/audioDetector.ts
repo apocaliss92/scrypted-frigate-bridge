@@ -2,18 +2,20 @@ import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterfac
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
-import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
-import { audioTopic, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, isAudioLevelValue } from "./utils";
+import { FRIGATE_AUDIO_DETECTOR_INTERFACE, isAudioLevelValue } from "./utils";
+import { FrigateBridgeAudioDetectorMixin } from "./audioDetectorMixin";
 import { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
-export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
+const audioTopic = `frigate/+/audio/+`;
+
+export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
         logLevel: {
             ...logLevelSetting,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
-    currentMixinsMap: Record<string, FrigateBridgeObjectDetectorMixin> = {};
+    currentMixinsMap: Record<string, FrigateBridgeAudioDetectorMixin> = {};
     plugin: FrigateBridgePlugin;
     logger: Console;
     mqttCb: MqttMessageCb;
@@ -22,7 +24,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
         super(nativeId);
         this.plugin = plugin;
 
-        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+        this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
     async startStop(enabled: boolean) {
@@ -49,39 +51,25 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
         const logger = this.getLogger();
 
         this.mqttCb = async (messageTopic, message) => {
-            if (messageTopic === eventsTopic) {
-                const obj: FrigateEvent = JSON.parse(message.toString());
-                logger.debug(`Event received: ${JSON.stringify(obj)}`);
+            const [_, camera, __, eventSubType] = messageTopic.split('/');
 
+            if (isAudioLevelValue(eventSubType)) {
+                // frigate/salone/audio/rms
+                // frigate/salone/audio/dBFS
+                logger.info(`Audio level message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
                 const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
 
-                    return cameraName === obj.after.camera;
+                    return cameraName === camera;
                 });
 
                 if (foundMixin) {
-                    await foundMixin.onFrigateDetectionEvent(obj);
-                }
-            } else {
-                const [_, camera, eventType, eventSubType] = messageTopic.split('/');
-
-                if (eventType === 'audio' && !isAudioLevelValue(message)) {
-                    // frigate/salone/audio/speech
-                    logger.info(`Audio message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
-                    const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
-                        const { cameraName } = mixin.storageSettings.values;
-
-                        return cameraName === camera;
-                    });
-
-                    if (foundMixin) {
-                        await foundMixin.onFrigateAudioEvent(eventSubType, message);
-                    }
+                    await foundMixin.onFrigateAudioEvent(eventSubType, message);
                 }
             }
         };
 
-        await mqttClient?.subscribe([eventsTopic, audioTopic], this.mqttCb);
+        await mqttClient?.subscribe([audioTopic], this.mqttCb);
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
@@ -118,7 +106,8 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             (interfaces.includes(ScryptedInterface.VideoCamera) || interfaces.includes(ScryptedInterface.Camera))) {
             return [
                 ScryptedInterface.Settings,
-                FRIGATE_OBJECT_DETECTOR_INTERFACE
+                ScryptedInterface.AudioVolumeControl,
+                FRIGATE_AUDIO_DETECTOR_INTERFACE
             ];
         }
 
@@ -126,21 +115,18 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
     }
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
-        return new FrigateBridgeObjectDetectorMixin({
+        return new FrigateBridgeAudioDetectorMixin({
             mixinDevice,
             mixinDeviceInterfaces,
             mixinDeviceState,
             mixinProviderNativeId: this.nativeId,
-            group: 'Frigate Object Detector',
-            groupKey: 'frigateObjectDetector',
+            group: 'Frigate Audio Detector',
+            groupKey: 'frigateAudioDetector',
         }, this)
     }
 
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
-        await this.plugin.mqttClient.unsubscribeWithCb([
-            { topic: audioTopic, cb: this.mqttCb },
-            { topic: eventsTopic, cb: this.mqttCb },
-        ]);
+        await this.plugin.mqttClient.unsubscribeWithCb([{ topic: audioTopic, cb: this.mqttCb }]);
         await mixinDevice.release();
     }
 }

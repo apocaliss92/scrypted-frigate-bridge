@@ -6,6 +6,7 @@ export const objectDetectorNativeId = 'frigateObjectDetector';
 export const animalClassifierNativeId = 'frigateAnimalClassifier';
 export const vehicleClassifierNativeId = 'frigateVehicleClassifier';
 export const motionDetectorNativeId = 'frigateMotionDetector';
+export const audioDetectorNativeId = 'frigateAudioDetector';
 export const videoclipsNativeId = 'frigateVideoclips';
 export const birdseyeCameraNativeId = 'frigateBirdseyeCamera';
 export const importedCameraNativeIdPrefix = 'frigateCamera';
@@ -13,9 +14,14 @@ export const pluginId = name;
 
 export const FRIGATE_OBJECT_DETECTOR_INTERFACE = `${pluginId}:objectDetector`;
 export const FRIGATE_MOTION_DETECTOR_INTERFACE = `${pluginId}:motionDetector`;
+export const FRIGATE_AUDIO_DETECTOR_INTERFACE = `${pluginId}:audioDetector`;
 export const FRIGATE_VIDEOCLIPS_INTERFACE = `${pluginId}:videoclips`;
 
 export type FrigateObjectDetection = ObjectsDetected & { frigateEvent: FrigateEvent };
+
+export const motionTopic = `frigate/+/motion`;
+export const eventsTopic = `frigate/events`;
+export const audioTopic = `frigate/+/audio/+`;
 
 interface Snapshot {
     frame_time: number;
@@ -120,6 +126,8 @@ export const baseFrigateApi = <T = any>(props: {
 }
 
 export type AudioType = 'dBFS' | 'rms' | string;
+
+export const isAudioLevelValue = (eventType: AudioType) => ['dBFS', 'rms'].includes(eventType);
 
 export const toSnakeCase = (str: string) => str
     .replace(/([a-z])([A-Z])/g, '$1 $2')

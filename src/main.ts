@@ -8,10 +8,11 @@ import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
 import FrigateBridgeCamera from "./camera";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { animalClassifierNativeId, baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, vehicleClassifierNativeId, videoclipsNativeId } from "./utils";
+import { animalClassifierNativeId, audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, vehicleClassifierNativeId, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 import FrigateBridgeClassifier from "./classsifier";
+import FrigateBridgeAudioDetector from "./audioDetector";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
@@ -74,6 +75,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
     objectDetectorDevice: FrigateBridgeObjectDetector;
     motionDetectorDevice: FrigateBridgeMotionDetector;
+    audioDetectorDevice: FrigateBridgeAudioDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
     birdseyeCamera: FrigateBridgeBirdseyeCamera;
     animalClassifier: FrigateBridgeClassifier;
@@ -102,14 +104,16 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
     async stop() {
         await this.motionDetectorDevice?.stop();
+        await this.audioDetectorDevice?.stop();
         await this.objectDetectorDevice?.stop();
         await this.mqttClient?.disconnect();
     }
 
     async start() {
         try {
-            await this.setupMqttClient();
+            await this.getMqttClient();
             await this.motionDetectorDevice?.start();
+            await this.audioDetectorDevice?.start();
             await this.objectDetectorDevice?.start();
         } catch (e) {
             this.getLogger().log(`Error in initFlow`, e);
@@ -197,7 +201,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
             const labels = res.data as string[];
             logger.log(`Labels found: ${labels}`);
-            this.putSetting('labels', [...labels, 'dBFS', 'rms']);
+            this.putSetting('labels', [...labels]);
 
             this.config = await this.getConfiguration();
 
@@ -221,6 +225,14 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             {
                 name: 'Frigate Motion Detector',
                 nativeId: motionDetectorNativeId,
+                interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
+                type: ScryptedDeviceType.API,
+            }
+        );
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
+                name: 'Frigate Audio Detector',
+                nativeId: audioDetectorNativeId,
                 interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
                 type: ScryptedDeviceType.API,
             }
@@ -526,6 +538,9 @@ ${cameraName}:
 
         if (nativeId === motionDetectorNativeId)
             return this.motionDetectorDevice ||= new FrigateBridgeMotionDetector(motionDetectorNativeId, this);
+
+        if (nativeId === audioDetectorNativeId)
+            return this.audioDetectorDevice ||= new FrigateBridgeAudioDetector(audioDetectorNativeId, this);
 
         if (nativeId === videoclipsNativeId)
             return this.videoclipsDevice ||= new FrigateBridgeVideoclips(videoclipsNativeId, this);
