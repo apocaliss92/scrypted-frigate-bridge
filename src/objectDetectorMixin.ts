@@ -4,6 +4,7 @@ import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionClass, detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeObjectDetector from "./objectDetector";
 import { AudioType, convertFrigateBoxToScryptedBox, FrigateEvent, FrigateObjectDetection, isAudioLevelValue, pluginId } from "./utils";
+import axios from "axios";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
     storageSettings = new StorageSettings(this, {
@@ -69,17 +70,54 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         }
     }
 
-    getDetectionInput(detectionId: string, eventId?: any): Promise<MediaObject> {
+    ensureMixinsOrder() {
         const logger = this.getLogger();
-        logger.log('getDetectionInput', detectionId);
+        const nvrObjectDetector = sdk.systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
+        const basicObjectDetector = sdk.systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
+        let shouldBeMoved = false;
+        const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
 
-        const mo = sdk.mediaManager.createMediaObjectFromUrl(`${this.plugin.plugin.storageSettings.values.serverUrl}/events/${detectionId}/snapshot.jpg`);
-        return mo;
+        if (nvrObjectDetector && this.mixins.indexOf(nvrObjectDetector) > thisMixinOrder) {
+            shouldBeMoved = true
+        }
+        if (basicObjectDetector && this.mixins.indexOf(basicObjectDetector) > thisMixinOrder) {
+            shouldBeMoved = true
+        }
+
+        if (shouldBeMoved) {
+            logger.log('This plugin needs other object detection plugins to come before, fixing');
+            setTimeout(() => {
+                const currentMixins = this.mixins.filter(mixin => mixin !== this.plugin.id);
+                currentMixins.push(this.plugin.id);
+                const thisDevice = sdk.systemManager.getDeviceById(this.id);
+                thisDevice.setMixins(currentMixins);
+            }, 1000);
+        }
+    }
+
+    async getDetectionInput(detectionId: string, eventId?: any): Promise<MediaObject> {
+        const logger = this.getLogger();
+
+        const url = `${this.plugin.plugin.storageSettings.values.serverUrl}/events/${detectionId}/snapshot.jpg`;
+        try {
+            const jpeg = await axios.get(url, { responseType: "arraybuffer" });
+            const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
+            logger.info(`Frigate event ${detectionId} found`);
+            return mo;
+        } catch (e) {
+            logger.info(`Error fetching Frigate event ${detectionId} ${eventId} from ${url}`, e.message);
+            return this.mixinDevice.getDetectionInput(detectionId, eventId);
+        }
     }
 
     async getObjectTypes(): Promise<ObjectDetectionTypes> {
+        const deviceClasses = await this.mixinDevice.getObjectTypes();
+
         return {
-            classes: this.plugin.plugin.storageSettings.values.labels
+            classes: [
+                ...deviceClasses.classes,
+                ...this.storageSettings.values.labels,
+            ]
         };
     }
 

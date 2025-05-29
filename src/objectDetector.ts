@@ -118,6 +118,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             (interfaces.includes(ScryptedInterface.VideoCamera) || interfaces.includes(ScryptedInterface.Camera))) {
             return [
                 ScryptedInterface.Settings,
+                ScryptedInterface.ObjectDetector,
                 FRIGATE_OBJECT_DETECTOR_INTERFACE
             ];
         }
