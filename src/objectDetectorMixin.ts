@@ -24,7 +24,8 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             defaultValue: [],
             onGet: async () => {
                 return {
-                    choices: this.plugin.plugin.storageSettings.values.labels
+                    choices: this.plugin.plugin.storageSettings.values.labels,
+                    defaultValue: this.plugin.plugin.storageSettings.values.labels
                 };
             }
         },
