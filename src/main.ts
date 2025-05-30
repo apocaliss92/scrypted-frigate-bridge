@@ -83,8 +83,6 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     camerasMap: Record<string, FrigateBridgeCamera> = {};
     mainInterval: NodeJS.Timeout;
     logger: Console;
-    initializingMqtt = false;
-    public mqttClient: MqttClient;
     config: any;
 
     constructor(nativeId: string) {
@@ -106,12 +104,10 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         await this.motionDetectorDevice?.stop();
         await this.audioDetectorDevice?.stop();
         await this.objectDetectorDevice?.stop();
-        await this.mqttClient?.disconnect();
     }
 
     async start() {
         try {
-            await this.getMqttClient();
             await this.motionDetectorDevice?.start();
             await this.audioDetectorDevice?.start();
             await this.objectDetectorDevice?.start();
@@ -139,42 +135,6 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         }
 
         return this.logger;
-    }
-
-    private async setupMqttClient() {
-        const { useMqttPluginCredentials, pluginEnabled } = this.storageSettings.values;
-        if (pluginEnabled) {
-            this.initializingMqtt = true;
-            const logger = this.getLogger();
-
-            if (this.mqttClient) {
-                this.mqttClient.disconnect();
-                this.mqttClient = undefined;
-            }
-
-            try {
-                this.mqttClient = await getMqttBasicClient({
-                    logger,
-                    useMqttPluginCredentials,
-                    mqttHost: this.storageSettings.getItem('mqttHost'),
-                    mqttUsename: this.storageSettings.getItem('mqttUsename'),
-                    mqttPassword: this.storageSettings.getItem('mqttPassword'),
-                    clientId: 'scrypted_frigate_bridge',
-                });
-            } catch (e) {
-                logger.log('Error setting up MQTT client', e);
-            } finally {
-                this.initializingMqtt = false;
-            }
-        }
-    }
-
-    async getMqttClient() {
-        if (!this.mqttClient && !this.initializingMqtt) {
-            await this.setupMqttClient();
-        }
-
-        return this.mqttClient;
     }
 
     getScryptedDeviceCreator(): string {

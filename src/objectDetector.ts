@@ -1,10 +1,10 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
 import { audioTopic, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, isAudioLevelValue } from "./utils";
-import { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
+import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
 export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -17,12 +17,19 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
     plugin: FrigateBridgePlugin;
     logger: Console;
     mqttCb: MqttMessageCb;
+    initializingMqtt = false;
+    public mqttClient: MqttClient;
+    killed: boolean;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
         super(nativeId);
         this.plugin = plugin;
 
-        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+        setTimeout(async () => {
+            if (!this.killed) {
+                this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+            }
+        });
     }
 
     async startStop(enabled: boolean) {
@@ -88,8 +95,40 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
         return this.storageSettings.putSetting(key, value);
     }
 
+    private async setupMqttClient() {
+        const { useMqttPluginCredentials, pluginEnabled } = this.plugin.storageSettings.values;
+        if (pluginEnabled) {
+            this.initializingMqtt = true;
+            const logger = this.getLogger();
+
+            if (this.mqttClient) {
+                this.mqttClient.disconnect();
+                this.mqttClient = undefined;
+            }
+
+            try {
+                this.mqttClient = await getMqttBasicClient({
+                    logger,
+                    useMqttPluginCredentials,
+                    mqttHost: this.plugin.storageSettings.getItem('mqttHost'),
+                    mqttUsename: this.plugin.storageSettings.getItem('mqttUsename'),
+                    mqttPassword: this.plugin.storageSettings.getItem('mqttPassword'),
+                    clientId: 'scrypted_frigate_object_detectoor',
+                });
+            } catch (e) {
+                logger.log('Error setting up MQTT client', e);
+            } finally {
+                this.initializingMqtt = false;
+            }
+        }
+    }
+
     async getMqttClient() {
-        return await this.plugin.getMqttClient();
+        if (!this.mqttClient && !this.initializingMqtt) {
+            await this.setupMqttClient();
+        }
+
+        return this.mqttClient;
     }
 
     getLogger() {
@@ -138,10 +177,8 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
     }
 
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
-        await this.plugin.mqttClient.unsubscribeWithCb([
-            { topic: audioTopic, cb: this.mqttCb },
-            { topic: eventsTopic, cb: this.mqttCb },
-        ]);
+        this.killed = true;
+        await this.mqttClient?.disconnect();
         await mixinDevice.release();
     }
 }
