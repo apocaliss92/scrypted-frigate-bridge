@@ -170,7 +170,8 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             ]
         };
 
-        logger.log('Detection event forwarded', JSON.stringify(detection));
+        logger.log(`Detection event forwarded, ${className}-${label}`);
+        logger.info(JSON.stringify(detection));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
     }
 
@@ -193,8 +194,8 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
                 ]
             };
 
-            const logMessage = `Audio event forwarded: ${JSON.stringify(detection)}`;
-            logger.log(logMessage);
+            logger.log(`Audio event forwarded, ${audioType}`);
+            logger.info(JSON.stringify(detection));
             this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
         } else {
             logger.info('Audio event skipped', audioType, value);

@@ -65,7 +65,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             } else {
                 const [_, camera, eventType, eventSubType] = messageTopic.split('/');
 
-                if (eventType === 'audio' && !isAudioLevelValue(message)) {
+                if (eventType === 'audio' && !isAudioLevelValue(eventSubType) && eventSubType !== 'state') {
                     // frigate/salone/audio/speech
                     logger.info(`Audio message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
                     const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
