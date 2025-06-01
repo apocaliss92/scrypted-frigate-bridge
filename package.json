@@ -1,11 +1,11 @@
 {
   "name": "@apocaliss92/scrypted-frigate-bridge",
-  "description": "Import object detections from Frigate, videoclips as well",
+  "description": "Import object/audio/motion events from Frigate, videoclips, birdseye and much more",
   "repository": {
     "type": "git",
     "url": "https://github.com/apocaliss92/scrypted-frigate-bridge"
   },
-  "version": "0.0.19",
+  "version": "0.0.20",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",
