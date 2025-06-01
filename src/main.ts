@@ -81,7 +81,6 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     animalClassifier: FrigateBridgeClassifier;
     vehicleClassifier: FrigateBridgeClassifier;
     camerasMap: Record<string, FrigateBridgeCamera> = {};
-    mainInterval: NodeJS.Timeout;
     logger: Console;
     config: any;
 
@@ -170,7 +169,11 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             this.putSetting('cameras', cameras);
         }
 
-        this.mainInterval = setInterval(async () => await fn(), 1000 * 60 * 10);
+        setInterval(async () => await fn(), 1000 * 60 * 10);
+        setTimeout(async () => {
+            logger.log(`Restarting`);
+            await sdk.deviceManager.requestRestart();
+        }, 1000 * 60 * 60 * 2);
         await fn();
 
         await sdk.deviceManager.onDeviceDiscovered(

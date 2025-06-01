@@ -19,17 +19,11 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
     mqttCb: MqttMessageCb;
     initializingMqtt = false;
     public mqttClient: MqttClient;
-    killed: boolean;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
         super(nativeId);
         this.plugin = plugin;
-
-        setTimeout(async () => {
-            if (!this.killed) {
-                this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
-            }
-        });
+        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
     async startStop(enabled: boolean) {
@@ -41,10 +35,15 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
     }
 
     async stop() {
+        const logger = this.getLogger();
+        logger.log('Stopping ObjectDetector listeners');
+        await this.mqttClient?.disconnect();
     }
 
     async start() {
         try {
+            const logger = this.getLogger();
+            logger.log('Starting ObjectDetector listeners');
             await this.startMqttListener();
         } catch (e) {
             this.getLogger().log(`Error in initFlow`, e);
@@ -177,8 +176,6 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
     }
 
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
-        this.killed = true;
-        await this.mqttClient?.disconnect();
         await mixinDevice.release();
     }
 }

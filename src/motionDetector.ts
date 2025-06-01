@@ -19,17 +19,11 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
     mqttCb: MqttMessageCb;
     initializingMqtt = false;
     public mqttClient: MqttClient;
-    killed: boolean;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
         super(nativeId);
         this.plugin = plugin;
-
-        setTimeout(async () => {
-            if (!this.killed) {
-                this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
-            }
-        });
+        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
     async startStop(enabled: boolean) {
@@ -162,8 +156,6 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
     }
 
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
-        this.killed = true;
-        await this.mqttClient?.disconnect();
         await mixinDevice.release();
     }
 }

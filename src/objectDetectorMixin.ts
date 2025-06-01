@@ -171,7 +171,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             ]
         };
 
-        logger.log(`Detection event forwarded, ${className}-${label}`);
+        logger.log(`Detection event forwarded, ${className}-${label ? '-' + label : ''}_${event.type}`);
         logger.info(JSON.stringify(detection));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
     }
