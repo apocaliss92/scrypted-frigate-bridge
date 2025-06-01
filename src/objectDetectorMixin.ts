@@ -112,11 +112,14 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     }
 
     async getObjectTypes(): Promise<ObjectDetectionTypes> {
-        const deviceClasses = await this.mixinDevice.getObjectTypes();
+        let deviceClasses: string[] = [];
+        try {
+            deviceClasses = (await this.mixinDevice.getObjectTypes())?.classes;
+        } catch { }
 
         return {
             classes: [
-                ...deviceClasses.classes,
+                ...deviceClasses,
                 ...this.storageSettings.values.labels,
             ]
         };
