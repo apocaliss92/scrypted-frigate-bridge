@@ -263,56 +263,70 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             })}`);
 
             try {
+                // if (webhook === 'videoclip') {
+                //     const { videoUrl } = dev.getVideoclipUrls(eventId);
+
+                //     const axiosResponse = await axios.get<Buffer>(videoUrl, {
+                //         responseType: 'arraybuffer',
+                //     });
+                //     const videoBuffer = axiosResponse.data;
+
+                //     const fileSize = videoBuffer.length;
+                //     const range = request.headers.range;
+
+                //     if (!range) {
+                //         response.send(videoBuffer, {
+                //             code: 200,
+                //             headers: {
+                //                 'Content-Length': fileSize,
+                //                 'Content-Type': 'video/mp4',
+                //             }
+                //         });
+                //         return;
+                //     } else {
+                //         const parts = range.replace(/bytes=/, "").split("-");
+                //         const start = parseInt(parts[0], 10);
+                //         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+                //         const chunkSize = (end - start) + 1;
+
+                //         const sendVideo = async () => {
+                //             return new Promise<void>((resolve, reject) => {
+                //                 try {
+                //                     response.sendStream((async function* () {
+                //                         let offset = start;
+                //                         while (offset <= end) {
+                //                             const next = Math.min(offset + chunkSize, end + 1);
+                //                             yield videoBuffer.slice(offset, next);
+                //                             offset = next;
+                //                         }
+                //                     })(), {
+                //                         code: 206,
+                //                         headers: {
+                //                             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+                //                             'Accept-Ranges': 'bytes',
+                //                             'Content-Length': chunkSize,
+                //                             'Content-Type': 'video/mp4',
+                //                         }
+                //                     });
+
+                //                     resolve();
+                //                 } catch (err) {
+                //                     reject(err);
+                //                 }
+                //             });
+                //         };
+
+                //         try {
+                //             await sendVideo();
+                //             return;
+                //         } catch (e) {
+                //             devConsole.log('Error fetching videoclip', e);
+                //             return;
+                //         }
+                //     }
+                // }
                 if (webhook === 'videoclip') {
-                    devConsole
-                    const range = request.headers.range;
-                    devConsole.log('range is ', range);
-
-                    // if (range) {
-                    //     const parts = range.replace(/bytes=/, "").split("-");
-                    //     const start = parseInt(parts[0], 10);
-                    //     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-                    //     const chunksize = (end - start) + 1;
-                    //     const file = fs.createReadStream(videoClipPath, { start, end });
-
-                    //     const sendVideo = async () => {
-                    //         return new Promise<void>((resolve, reject) => {
-                    //             try {
-                    //                 response.sendStream((async function* () {
-                    //                     for await (const chunk of file) {
-                    //                         yield chunk;
-                    //                     }
-                    //                 })(), {
-                    //                     code: 206,
-                    //                     headers: {
-                    //                         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-                    //                         'Accept-Ranges': 'bytes',
-                    //                         'Content-Length': chunksize,
-                    //                         'Content-Type': 'video/mp4',
-                    //                     }
-                    //                 });
-
-                    //                 resolve();
-                    //             } catch (err) {
-                    //                 reject(err);
-                    //             }
-                    //         });
-                    //     };
-
-                    //     try {
-                    //         await sendVideo();
-                    //         return;
-                    //     } catch (e) {
-                    //         devConsole.log('Error fetching videoclip', e);
-                    //     }
-                    // } else {
-                    // devConsole.log(`Videoclip requested via API: ${JSON.stringify({
-                    //     videoclipPath,
-                    //     deviceId,
-                    //     playbackPathWithHost,
-                    // })}`);
-
                     const { videoUrl } = dev.getVideoclipUrls(eventId);
                     const sendVideo = async () => {
                         return new Promise<void>((resolve, reject) => {
