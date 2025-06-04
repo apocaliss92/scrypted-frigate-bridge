@@ -19,6 +19,7 @@ type StorageKey = BaseSettingsKey |
     'labels' |
     'cameras' |
     'exportCameraDevice' |
+    'exportWithRebroadcast' |
     'enableBirdseyeCamera' |
     'logLevel' |
     'exportButton';
@@ -63,6 +64,14 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             type: 'device',
             immediate: true,
             deviceFilter: `interfaces.some(int => ['${ScryptedInterface.Camera}', '${ScryptedInterface.VideoCamera}'].includes(int))`
+        },
+        exportWithRebroadcast: {
+            title: 'Export with rebroadcast',
+            description: 'If checked will provide rebroadcast urls, otherwise camera ones',
+            group: 'Export camera',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
         },
         exportButton: {
             title: 'Export',
@@ -252,80 +261,16 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
         try {
             const [_, __, ___, ____, _____, webhook] = url.pathname.split('/');
-            const { deviceId, eventId, parameters } = JSON.parse(params);
+            const { deviceId, eventId } = JSON.parse(params);
             const dev: FrigateBridgeVideoclipsMixin = this.videoclipsDevice.currentMixinsMap[deviceId];
             const devConsole = dev.getLogger();
             devConsole.debug(`Request with parameters: ${JSON.stringify({
                 webhook,
                 deviceId,
                 eventId,
-                parameters
             })}`);
 
             try {
-                // if (webhook === 'videoclip') {
-                //     const { videoUrl } = dev.getVideoclipUrls(eventId);
-
-                //     const axiosResponse = await axios.get<Buffer>(videoUrl, {
-                //         responseType: 'arraybuffer',
-                //     });
-                //     const videoBuffer = axiosResponse.data;
-
-                //     const fileSize = videoBuffer.length;
-                //     const range = request.headers.range;
-
-                //     if (!range) {
-                //         response.send(videoBuffer, {
-                //             code: 200,
-                //             headers: {
-                //                 'Content-Length': fileSize,
-                //                 'Content-Type': 'video/mp4',
-                //             }
-                //         });
-                //         return;
-                //     } else {
-                //         const parts = range.replace(/bytes=/, "").split("-");
-                //         const start = parseInt(parts[0], 10);
-                //         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-                //         const chunkSize = (end - start) + 1;
-
-                //         const sendVideo = async () => {
-                //             return new Promise<void>((resolve, reject) => {
-                //                 try {
-                //                     response.sendStream((async function* () {
-                //                         let offset = start;
-                //                         while (offset <= end) {
-                //                             const next = Math.min(offset + chunkSize, end + 1);
-                //                             yield videoBuffer.slice(offset, next);
-                //                             offset = next;
-                //                         }
-                //                     })(), {
-                //                         code: 206,
-                //                         headers: {
-                //                             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-                //                             'Accept-Ranges': 'bytes',
-                //                             'Content-Length': chunkSize,
-                //                             'Content-Type': 'video/mp4',
-                //                         }
-                //                     });
-
-                //                     resolve();
-                //                 } catch (err) {
-                //                     reject(err);
-                //                 }
-                //             });
-                //         };
-
-                //         try {
-                //             await sendVideo();
-                //             return;
-                //         } catch (e) {
-                //             devConsole.log('Error fetching videoclip', e);
-                //             return;
-                //         }
-                //     }
-                // }
                 if (webhook === 'videoclip') {
                     const { videoUrl } = dev.getVideoclipUrls(eventId);
                     const sendVideo = async () => {
@@ -403,7 +348,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
     async exportCamera() {
         const logger = this.getLogger();
-        const { exportCameraDevice } = this.storageSettings.values;
+        const { exportCameraDevice, exportWithRebroadcast } = this.storageSettings.values;
         if (!exportCameraDevice) {
             return;
         }
@@ -425,12 +370,12 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint();
         const hostname = new URL(localEndpoint).hostname;
-        const highResUrl = restreamHighStreamSetting?.value.toString().replace(
+        const highResUrl = exportWithRebroadcast ? restreamHighStreamSetting?.value.toString().replace(
             'localhost', hostname
-        );
-        const lowResUrl = restreamLowStreamSetting?.value.toString().replace(
+        ) : (highResStream as any).url
+        const lowResUrl = exportWithRebroadcast ? restreamLowStreamSetting?.value.toString().replace(
             'localhost', hostname
-        );
+        ) : (lowResStream as any).url;
 
         const highHwacclArgs = highResStream.video.codec === 'h265' ?
             'preset-intel-qsv-h265' :

@@ -1,4 +1,4 @@
-import sdk, { MediaObject, ScryptedDeviceBase, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from "@scrypted/sdk";
+import sdk, { MediaObject, ScryptedDeviceBase, ScryptedMimeTypes, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
@@ -71,16 +71,21 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             } catch {
                 url = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true })
             }
+
             const [endpoint, parameters] = url.split('?') ?? '';
             const params = {
                 deviceId: this.id,
                 eventId,
             }
+            const pathnamePrefix = new URL(url).pathname;
 
-            const videoclipUrl = `${endpoint}videoclip?params=${JSON.stringify(params)}&${parameters}`;
-            const thumbnailUrl = `${endpoint}thumbnail?params=${JSON.stringify(params)}&${parameters}`;
+            const parametersParsed = parameters ? `&${parameters}` : '';
+            const videoclipUrl = `${endpoint}videoclip?params=${JSON.stringify(params)}${parametersParsed}`;
+            const thumbnailUrl = `${endpoint}thumbnail?params=${JSON.stringify(params)}${parametersParsed}`;
+            const videoclipHref = `${pathnamePrefix}videoclip?params=${JSON.stringify(params)}${parametersParsed}`;
+            const thumbnailHref = `${pathnamePrefix}thumbnail?params=${JSON.stringify(params)}${parametersParsed}`;
 
-            return { videoclipUrl, thumbnailUrl };
+            return { videoclipUrl, thumbnailUrl, videoclipHref, thumbnailHref };
         } catch (e) {
             logger.log(`Error fetching cloud endpoint`, e);
             return {};
@@ -133,7 +138,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
                 const startTime = event.start_time * 1000;
                 const endTime = event.end_time * 1000;
-                const { thumbnailUrl, videoclipUrl } = await this.getVideoclipWebhookUrls(event.id);
+                const { thumbnailHref, videoclipHref } = await this.getVideoclipWebhookUrls(event.id);
 
                 const videoclip: VideoClip = {
                     id: event.id,
@@ -145,10 +150,10 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                     videoId: event.id,
                     resources: {
                         video: {
-                            href: videoclipUrl,
+                            href: videoclipHref,
                         },
                         thumbnail: {
-                            href: thumbnailUrl,
+                            href: thumbnailHref,
                         },
                     }
                 };
@@ -157,7 +162,6 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             }
 
             return videoclips;
-
         } catch (e) {
             logger.error('Error in getRecordedEvents', e);
             return [];
@@ -168,8 +172,10 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
         const logger = this.getLogger();
 
         try {
-            const { videoUrl } = this.getVideoclipUrls(videoId);
-            const mo = await sdk.mediaManager.createMediaObjectFromUrl(videoUrl);
+            const { videoclipUrl } = await this.getVideoclipWebhookUrls(videoId);
+            const mo = await sdk.mediaManager.createMediaObject(Buffer.from(videoclipUrl), ScryptedMimeTypes.LocalUrl, {
+                sourceId: this.id
+            });
 
             return mo;
         } catch (e) {

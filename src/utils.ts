@@ -38,7 +38,7 @@ interface AttributeDetail {
     score: number;
 }
 
-interface DetectionData {
+export interface DetectionData {
     id: string;
     camera: string;
     frame_time: number;
@@ -65,6 +65,7 @@ interface DetectionData {
     position_changes: number;
     attributes: Record<string, number>; // esempio: { face: 0.86 }
     current_attributes: AttributeDetail[];
+    data?: { type: 'object' | 'audio' }
 }
 
 export interface FrigateEvent {
