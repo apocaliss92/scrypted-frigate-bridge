@@ -5,6 +5,7 @@ import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src
 import { baseFrigateApi, FrigateVideoClip, pluginId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { sortBy } from "lodash";
+import axios from "axios";
 
 export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
     storageSettings = new StorageSettings(this, {
@@ -179,14 +180,26 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
         const logger = this.getLogger();
 
         try {
+            const { videoUrl } = this.getVideoclipUrls(videoId);
+            await axios.get(videoUrl, {
+                headers: {
+                    Range: "bytes=0-99"
+                },
+                responseType: "arraybuffer",
+            });
+
             const { videoclipUrl } = await this.getVideoclipWebhookUrls(videoId);
             const mo = await sdk.mediaManager.createMediaObject(Buffer.from(videoclipUrl), ScryptedMimeTypes.LocalUrl, {
                 sourceId: this.id
             });
 
             return mo;
-        } catch (e) {
-            logger.error('Error in getVideoClip', videoId, e);
+        } catch {
+            try {
+                return this.mixinDevice.getVideoClip(videoId);
+            } catch (e) {
+                logger.error('Error in getVideoClip', videoId, e);
+            }
         }
     }
 
@@ -198,8 +211,12 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             const mo = await sdk.mediaManager.createMediaObjectFromUrl(thumbnailUrl);
 
             return mo;
-        } catch (e) {
-            logger.error('Error in getVideoClip', thumbnailId, e);
+        } catch {
+            try {
+                return this.mixinDevice.getVideoClipThumbnail(thumbnailId, options);
+            } catch (e) {
+                logger.error('Error in getVideoClipThumbnail', thumbnailId, e);
+            }
         }
     }
 
