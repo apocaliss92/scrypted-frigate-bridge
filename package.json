@@ -5,7 +5,7 @@
     "type": "git",
     "url": "https://github.com/apocaliss92/scrypted-frigate-bridge"
   },
-  "version": "0.0.25",
+  "version": "0.0.26",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",

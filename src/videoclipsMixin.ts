@@ -145,7 +145,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             for (const event of filteredEvents) {
                 const startTime = event.start_time * 1000;
                 const endTime = event.end_time * 1000;
-                const { thumbnailHref, videoclipHref } = await this.getVideoclipWebhookUrls(event.id);
+                const { thumbnailUrl, videoclipUrl } = await this.getVideoclipWebhookUrls(event.id);
 
                 const videoclip: VideoClip = {
                     id: event.id,
@@ -158,10 +158,10 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                     videoId: event.id,
                     resources: {
                         video: {
-                            href: videoclipHref,
+                            href: videoclipUrl,
                         },
                         thumbnail: {
-                            href: thumbnailHref,
+                            href: thumbnailUrl,
                         },
                     }
                 };
@@ -190,7 +190,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
             const { videoclipUrl } = await this.getVideoclipWebhookUrls(videoId);
             const mo = await sdk.mediaManager.createMediaObject(Buffer.from(videoclipUrl), ScryptedMimeTypes.LocalUrl, {
-                sourceId: this.id
+                sourceId: this.plugin.id
             });
 
             return mo;
@@ -208,7 +208,11 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
         try {
             const { thumbnailUrl } = this.getVideoclipUrls(thumbnailId);
-            const mo = await sdk.mediaManager.createMediaObjectFromUrl(thumbnailUrl);
+            const jpeg = await axios.get(thumbnailUrl, {
+                responseType: "arraybuffer",
+            });
+
+            const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
 
             return mo;
         } catch {

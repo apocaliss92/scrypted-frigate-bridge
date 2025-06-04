@@ -1,18 +1,17 @@
 import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
-import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
-import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
+import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
+import FrigateBridgeAudioDetector from "./audioDetector";
 import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
 import FrigateBridgeCamera from "./camera";
+import FrigateBridgeClassifier from "./classsifier";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
 import { animalClassifierNativeId, audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, vehicleClassifierNativeId, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
-import FrigateBridgeClassifier from "./classsifier";
-import FrigateBridgeAudioDetector from "./audioDetector";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
@@ -272,7 +271,14 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
             try {
                 if (webhook === 'videoclip') {
+                    // const { serverUrl } = this.storageSettings.values;
                     const { videoUrl } = dev.getVideoclipUrls(eventId);
+                    // const eventUrl = `${serverUrl}/events/${eventId}`;
+                    // const eventResponse = await axios.get<DetectionData>(eventUrl);
+                    // const event = eventResponse.data;
+                    // const frigateOrigin = new URL(serverUrl).origin;
+                    // const vodUrl = `${frigateOrigin}/vod/${event.camera}/start/${event.start_time}/end/${event.end_time}/index.m3u8`;
+
                     const sendVideo = async () => {
                         return new Promise<void>((resolve, reject) => {
                             http.get(videoUrl, { headers: request.headers }, (httpResponse) => {
@@ -300,6 +306,39 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                             });
                         });
                     };
+                    // const sendVideo = async () => {
+                    //     return new Promise<void>(async (resolve, reject) => {
+                    //         const playlistRes = await axios.get<string>(vodUrl);
+                    //         const lines = playlistRes.data.split('\n');
+
+                    //         devConsole.log(`Lines found`, lines);
+                    //         for (const line of lines) {
+                    //             if (line.includes('.mp4') || line.includes('.m4s')) {
+                    //                 const parsed = line.replaceAll('#EXT-X-MAP:URI=', '').replaceAll('"', '');
+                    //                 const segmentUrl = new URL(parsed, vodUrl).href;
+                    //                 devConsole.log(`Segment ${segmentUrl}`);
+
+                    //                 try {
+                    //                     const segmentRes = await axios.get<Buffer[]>(segmentUrl, {
+                    //                         responseType: 'arraybuffer',
+                    //                     });
+                    //                     response.sendStream((async function* () {
+                    //                         for await (const chunk of segmentRes.data) {
+                    //                             devConsole.log(chunk);
+                    //                             yield chunk;
+                    //                         }
+                    //                     })(), {
+                    //                         headers: segmentRes.headers
+                    //                     });
+                    //                 } catch (err) {
+                    //                     console.error(`Errore nel segmento: ${segmentUrl}`, err);
+                    //                     reject();
+                    //                 }
+                    //             }
+                    //         }
+                    //         resolve();
+                    //     });
+                    // };
 
                     try {
                         await sendVideo();
