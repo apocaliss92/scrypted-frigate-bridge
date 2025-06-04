@@ -4,6 +4,7 @@ import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { baseFrigateApi, FrigateVideoClip, pluginId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
+import { sortBy } from "lodash";
 
 export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
     storageSettings = new StorageSettings(this, {
@@ -93,13 +94,20 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
     }
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
-        const { count, endTime, startTime } = options;
+        const { count, endTime, startTime } = options ?? {};
         const { cameraName } = this.storageSettings.values;
         const logger = this.getLogger();
 
+        const videoclips: VideoClip[] = [];
+
+        try {
+            const deviceClips = await this.mixinDevice.getVideoClips(options);
+            videoclips.push(...deviceClips);
+        } catch { }
+
         if (!cameraName) {
             logger.log('Camera name not set');
-            return [];
+            return videoclips;
         }
 
         try {
@@ -133,9 +141,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                 );
             // .filter(event => event.has_clip && event.has_snapshot && event.data.max_severity === 'alert');
 
-            const videoclips: VideoClip[] = [];
             for (const event of filteredEvents) {
-
                 const startTime = event.start_time * 1000;
                 const endTime = event.end_time * 1000;
                 const { thumbnailHref, videoclipHref } = await this.getVideoclipWebhookUrls(event.id);
@@ -144,6 +150,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                     id: event.id,
                     startTime,
                     duration: endTime - startTime,
+                    description: pluginId,
                     detectionClasses: [detectionClassesDefaultMap[event.label]],
                     event: event.label,
                     thumbnailId: event.id,
@@ -161,7 +168,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                 videoclips.push(videoclip);
             }
 
-            return videoclips;
+            return sortBy(videoclips, 'startTime');;
         } catch (e) {
             logger.error('Error in getRecordedEvents', e);
             return [];
