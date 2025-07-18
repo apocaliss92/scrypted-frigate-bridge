@@ -2,17 +2,17 @@ import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterfac
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
-import { FRIGATE_VIDEOCLIPS_INTERFACE } from "./utils";
-import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
+import { FRIGATE_SNAPSHOT_INTERFACE } from "./utils";
+import { FrigateBridgeSnapshotMixin } from "./snapshotMixin";
 
-export default class FrigateBridgeVideoclips extends ScryptedDeviceBase implements MixinProvider {
+export default class FrigateBridgeSnapshot extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
         logLevel: {
             ...logLevelSetting,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
-    currentMixinsMap: Record<string, FrigateBridgeVideoclipsMixin> = {};
+    currentMixinsMap: Record<string, FrigateBridgeSnapshotMixin> = {};
     plugin: FrigateBridgePlugin;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
@@ -57,8 +57,8 @@ export default class FrigateBridgeVideoclips extends ScryptedDeviceBase implemen
             (interfaces.includes(ScryptedInterface.VideoCamera) || interfaces.includes(ScryptedInterface.Camera))) {
             return [
                 ScryptedInterface.Settings,
-                ScryptedInterface.VideoClips,
-                FRIGATE_VIDEOCLIPS_INTERFACE
+                ScryptedInterface.Camera,
+                FRIGATE_SNAPSHOT_INTERFACE
             ];
         }
 
@@ -66,13 +66,13 @@ export default class FrigateBridgeVideoclips extends ScryptedDeviceBase implemen
     }
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
-        return new FrigateBridgeVideoclipsMixin({
+        return new FrigateBridgeSnapshotMixin({
             mixinDevice,
             mixinDeviceInterfaces,
             mixinDeviceState,
             mixinProviderNativeId: this.nativeId,
-            group: 'Frigate Videoclips',
-            groupKey: 'frigateVideoclips',
+            group: 'Frigate Snapshot',
+            groupKey: 'frigateSnapshot',
         }, this)
     }
 

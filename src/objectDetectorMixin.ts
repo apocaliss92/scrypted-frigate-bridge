@@ -156,6 +156,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             frigateEvent: event,
             timestamp: Math.trunc(event.after.start_time * 1000),
             inputDimensions: [0, 0],
+            detectionId: event.after.id,
             detections: [
                 { className: 'motion', score: 1, boundingBox },
                 {
