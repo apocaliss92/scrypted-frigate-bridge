@@ -13,6 +13,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             type: 'string',
             choices: [],
             immediate: true,
+            onPut: async (_, cameraName) => await this.setZones(cameraName),
         },
         labels: {
             title: 'Labels to import',
@@ -38,10 +39,15 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             choices: ['new', 'update', 'end'],
             defaultValue: ['end']
         },
+        zones: {
+            title: 'Zones',
+            multiple: true,
+            readonly: true,
+            choices: [],
+        },
     });
 
     logger: Console;
-    lastAudioLevelsSent: Record<string, number> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -53,6 +59,17 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
         const logger = this.getLogger();
         this.init().catch(logger.error);
+    }
+
+    async setZones(cameraName: string) {
+        let zones: string[] = [];
+        if (cameraName) {
+            zones = this.plugin.plugin.storageSettings.values.cameraZones?.[cameraName] ?? [];
+        } else {
+            zones = [];
+        }
+
+        this.storageSettings.values.zones = zones;
     }
 
     async init() {
@@ -69,6 +86,8 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             );
             await this.storageSettings.putSetting('labels', fixedLabels);
         }
+
+        await this.setZones(this.storageSettings.values.cameraName);
     }
 
     ensureMixinsOrder() {

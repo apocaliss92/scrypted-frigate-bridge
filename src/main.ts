@@ -17,6 +17,7 @@ type StorageKey = BaseSettingsKey |
     'serverUrl' |
     'labels' |
     'cameras' |
+    'cameraZones' |
     'exportCameraDevice' |
     'exportWithRebroadcast' |
     'enableBirdseyeCamera' |
@@ -50,6 +51,10 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             readonly: true,
             multiple: true,
             choices: [],
+        },
+        cameraZones: {
+            json: true,
+            hide: true,
         },
         enableBirdseyeCamera: {
             title: 'Enable birdseye camera',
@@ -175,6 +180,13 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             const cameras = Object.keys((this.config ?? {})?.cameras);
             logger.log(`Cameras found: ${cameras}`);
             this.putSetting('cameras', cameras);
+
+            const cameraZones = {}
+            for (const cameraName of cameras) {
+                cameraZones[cameraName] = Object.keys(this.config?.cameras?.[cameraName]?.zones ?? {}) ?? [];
+            }
+            this.putSetting('cameraZones', JSON.stringify(cameraZones));
+            logger.log(`Zones found: ${JSON.stringify(cameraZones)}`);
         }
 
         setInterval(async () => await fn(), 1000 * 60 * 10);
