@@ -32,6 +32,8 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             },
             hideHa: true,
             baseGroupName: '',
+            defaultMqtt: true,
+            mqttAlwaysEnabled: true
         }),
         serverUrl: {
             title: 'Frigate server API URL',
@@ -552,7 +554,7 @@ ${cameraName}:
     async getSettings() {
         try {
             applySettingsShow(this.storageSettings);
-            this.storageSettings.settings.mqttEnabled.hide = true;
+            // this.storageSettings.settings.mqttEnabled.hide = true;
             const settings = await this.storageSettings.getSettings();
             return settings;
         } catch (e) {
