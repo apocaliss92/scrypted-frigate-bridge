@@ -168,6 +168,9 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         const logger = this.getLogger();
 
         const fn = async () => {
+            if (!this.storageSettings.values.serverUrl) {
+                return;
+            }
             const res = await baseFrigateApi({
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'labels',
@@ -553,8 +556,7 @@ ${cameraName}:
 
     async getSettings() {
         try {
-            applySettingsShow(this.storageSettings);
-            // this.storageSettings.settings.mqttEnabled.hide = true;
+            this.storageSettings.settings.mqttEnabled.hide = true;
             const settings = await this.storageSettings.getSettings();
             return settings;
         } catch (e) {
