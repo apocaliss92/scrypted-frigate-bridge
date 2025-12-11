@@ -1,7 +1,7 @@
 import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
-import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeAudioDetector from "./audioDetector";
 import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";

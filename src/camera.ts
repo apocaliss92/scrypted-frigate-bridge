@@ -1,11 +1,10 @@
 import sdk, { MediaObject, PictureOptions, Setting } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import axios from "axios";
 import EventEmitter from "events";
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";
-import axios from "axios";
-import { motionDetectorNativeId, objectDetectorNativeId, pluginId, videoclipsNativeId } from "./utils";
 
 class FrigateBridgeCamera extends RtspSmartCamera {
     storageSettings = new StorageSettings(this, {
@@ -67,12 +66,21 @@ class FrigateBridgeCamera extends RtspSmartCamera {
     async init() {
         const config = await this.provider.getConfiguration();
         this.streamsData = config.cameras?.[this.cameraName]?.ffmpeg?.inputs ?? [];
+
+        const streamUrl = await this.storage.getItem('snapshot:snapshotUrl');
+        if (!streamUrl) {
+            this.storage.setItem('snapshot:snapshotUrl', this.getSnapshotUrl());
+        }
+    }
+
+    getSnapshotUrl(): string {
+        const { serverUrl } = this.provider.storageSettings.values;
+        const { cameraName } = this.storageSettings.values;
+        return `${serverUrl}/${cameraName}/latest.jpg`;
     }
 
     async takeSmartCameraPicture(options?: PictureOptions): Promise<MediaObject> {
-        const { serverUrl } = this.provider.storageSettings.values;
-        const { cameraName } = this.storageSettings.values;
-        const imageUrl = `${serverUrl}/${cameraName}/latest.jpg?ts=${Date.now()}`;
+        const imageUrl = `${this.getSnapshotUrl()}?ts=${Date.now()}`;
         const image = axios.get(imageUrl, { responseType: "arraybuffer" });
 
         const mo = await sdk.mediaManager.createMediaObject(image, 'image/jpeg');
