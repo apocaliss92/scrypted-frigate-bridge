@@ -1,4 +1,4 @@
-import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionClass, detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
@@ -44,6 +44,13 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             multiple: true,
             readonly: true,
             choices: [],
+        },
+        simulateCameraDetections: {
+            title: 'Simulate camera detections',
+            description: 'If enabled, detections will simulate camera onboarded detections, which should be supported by NVR',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true
         },
     });
 
@@ -145,15 +152,10 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     }
 
     async onFrigateDetectionEvent(event: FrigateEvent) {
-        const { eventTypes, labels } = this.storageSettings.values;
+        const { eventTypes, labels, simulateCameraDetections } = this.storageSettings.values;
         const boundingBox: ObjectDetectionResult['boundingBox'] = convertFrigateBoxToScryptedBox(event.after.box);
         let className = event.after.label;
         const [label, labelScore] = event.after.sub_label ?? [];
-        // const className = detectionClassesDefaultMap[event.after.label] || event.after.label;
-        // let label;
-        // if (className !== event.after.label) {
-        //     label = event.after.label;
-        // }
 
         if (className === 'person' && label) {
             className = 'face';
@@ -171,28 +173,46 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             return;
         }
 
-        const detection: FrigateObjectDetection = {
-            frigateEvent: event,
-            timestamp: Math.trunc(event.after.start_time * 1000),
-            inputDimensions: [0, 0],
-            detectionId: event.after.id,
-            detections: [
-                { className: 'motion', score: 1, boundingBox },
-                {
-                    className,
-                    score: event.after.score,
-                    boundingBox,
-                    label,
-                    labelScore,
-                    movement: {
-                        moving: event.after.active,
-                        firstSeen: Math.trunc(event.after.start_time * 1000),
-                        lastSeen: Math.trunc(event.after.end_time * 1000),
+        let detection: FrigateObjectDetection | ObjectsDetected;
+        const timestamp = Math.trunc(event.after.start_time * 1000);
+        const score = event.after.score;
+
+        if (simulateCameraDetections) {
+            detection = {
+                timestamp,
+                detections: [
+                    { className: 'motion', score: 1 },
+                    {
+                        className,
+                        score,
                     },
-                    zones: event.after.current_zones,
-                },
-            ]
-        };
+                ],
+                sourceId: this.pluginId
+            };
+        } else {
+            detection = {
+                frigateEvent: event,
+                timestamp,
+                inputDimensions: [0, 0],
+                detectionId: event.after.id,
+                detections: [
+                    { className: 'motion', score: 1, boundingBox },
+                    {
+                        className,
+                        score,
+                        boundingBox,
+                        label,
+                        labelScore,
+                        movement: {
+                            moving: event.after.active,
+                            firstSeen: Math.trunc(event.after.start_time * 1000),
+                            lastSeen: Math.trunc(event.after.end_time * 1000),
+                        },
+                        zones: event.after.current_zones,
+                    },
+                ]
+            } as FrigateObjectDetection;
+        }
 
         logger.log(`Detection event forwarded, ${className}${label ? '-' + label : ''}-${event.type}`);
         logger.info(JSON.stringify(detection));
