@@ -19,7 +19,7 @@ export const FRIGATE_AUDIO_DETECTOR_INTERFACE = `${pluginId}:audioDetector`;
 export const FRIGATE_VIDEOCLIPS_INTERFACE = `${pluginId}:videoclips`;
 export const FRIGATE_SNAPSHOT_INTERFACE = `${pluginId}:snapshot`;
 
-export type FrigateObjectDetection = ObjectsDetected & { frigateEvent: FrigateEvent };
+export type FrigateObjectDetection = ObjectsDetected & { frigateData: FrigateEvent };
 
 export const motionTopic = `frigate/+/motion`;
 export const eventsTopic = `frigate/events`;
@@ -74,6 +74,7 @@ export interface FrigateEvent {
     type: 'new' | 'update' | 'end';
     before: DetectionData;
     after: DetectionData;
+    richEvent: ObjectsDetected;
 }
 
 export interface FrigateVideoClip {

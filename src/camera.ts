@@ -67,7 +67,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
         const config = await this.provider.getConfiguration();
         this.streamsData = config.cameras?.[this.cameraName]?.ffmpeg?.inputs ?? [];
 
-        const streamUrl = await this.storage.getItem('snapshot:snapshotUrl');
+        const streamUrl = this.storage.getItem('snapshot:snapshotUrl');
         if (!streamUrl) {
             this.storage.setItem('snapshot:snapshotUrl', this.getSnapshotUrl());
         }
