@@ -1,7 +1,7 @@
 import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
-import { BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeAudioDetector from "./audioDetector";
 import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
@@ -557,6 +557,7 @@ ${cameraName}:
     async getSettings() {
         try {
             this.storageSettings.settings.mqttEnabled.hide = true;
+            applySettingsShow(this.storageSettings);
             const settings = await this.storageSettings.getSettings();
             return settings;
         } catch (e) {
