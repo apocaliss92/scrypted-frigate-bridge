@@ -37,7 +37,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             combobox: true,
             immediate: true,
             choices: ['new', 'update', 'end'],
-            defaultValue: ['end']
+            defaultValue: ['new', 'update']
         },
         zones: {
             title: 'Zones',
@@ -79,6 +79,10 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             this.storageSettings.settings.cameraName.readonly = true;
         }
 
+        await this.updateSettings();
+    }
+
+    async updateSettings() {
         const { labels } = this.storageSettings.values;
         if (labels.some(label => isAudioLevelValue(label))) {
             const fixedLabels = labels.filter(label =>
@@ -200,24 +204,32 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
                     score,
                 },
             ],
-            sourceId: this.pluginId,
+            sourceId: pluginId,
             frigateEvent
         }
 
-        logger.log(`Detection event forwarded, ${className}${label ? '-' + label : ''}-${event.type}`);
+        logger.log(`Detection event forwarded, ${JSON.stringify({
+            className,
+            label,
+            type: event.type,
+            zonesAfter: event.after.current_zones,
+            zonesBefore: event.before?.current_zones,
+            detection,
+        })}`);
         logger.info(JSON.stringify(detection));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
     }
 
     async onFrigateAudioEvent(audioType: AudioType, value: any) {
-        const { labels, cameraName } = this.storageSettings.values;
+        const { labels } = this.storageSettings.values;
         const now = Date.now();
 
         const logger = this.getLogger();
         if (labels?.includes(audioType) && value === 'ON') {
-            const frigateEvent: ObjectsDetected = {
+            const detection: ObjectsDetected = {
                 timestamp: now,
                 inputDimensions: [0, 0],
+                sourceId: pluginId,
                 detections: [
                     {
                         className: DetectionClass.Audio,
@@ -227,9 +239,10 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
                 ]
             }
 
-            logger.log(`Audio event forwarded, ${audioType}`);
-            logger.info(JSON.stringify(frigateEvent));
-            this.onDeviceEvent(ScryptedInterface.ObjectDetector, frigateEvent);
+            logger.log(`Audio event forwarded, ${JSON.stringify({
+                detection,
+            })}`);
+            this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
         } else {
             logger.info('Audio event skipped', audioType, value);
         }
