@@ -81,7 +81,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             logger,
         });
 
-        await this.updateSettings();
+        await this.setZones(this.storageSettings.values.cameraName);
 
         const { labels, cameraName } = this.storageSettings.values;
 
@@ -96,10 +96,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         const { objectLabels } = this.plugin.plugin.storageSettings.values;
         this.storageSettings.settings.labels.choices = objectLabels;
         this.storageSettings.settings.labels.defaultValue = objectLabels;
-    }
-
-    async updateSettings() {
-        await this.setZones(this.storageSettings.values.cameraName);
     }
 
     async getDetectionInput(detectionId: string, eventId?: any): Promise<MediaObject> {
@@ -194,9 +190,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         logger.log(`Detection event forwarded, ${JSON.stringify({
             className,
             label,
-            type: event.type,
-            zonesAfter: event.after.current_zones,
-            zonesBefore: event.before?.current_zones,
+            event,
             detection,
         })}`);
         logger.info(JSON.stringify(detection));
@@ -205,10 +199,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
     async getMixinSettings(): Promise<Setting[]> {
         try {
-            const classes = await this.getObjectTypes();
-            this.storageSettings.settings.labels.choices = classes.classes;
-            this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
-
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);

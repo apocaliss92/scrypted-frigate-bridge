@@ -146,8 +146,6 @@ export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any
     async getMixinSettings(): Promise<Setting[]> {
         const logger = this.getLogger();
         try {
-            this.storageSettings.settings.cameraName.choices = this.plugin.plugin.storageSettings.values.cameras;
-
             return this.storageSettings.getSettings();
         } catch (e) {
             logger.log('Error in getMixinSettings', e);

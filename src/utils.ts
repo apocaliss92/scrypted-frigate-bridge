@@ -209,6 +209,7 @@ export const initFrigateMixin = async (props: {
     logger: Console,
 }) => {
     const { mixin, storageSettings, plugin, logger } = props;
+    storageSettings.settings.cameraName.choices = plugin.storageSettings.values.cameras;
     if (mixin.pluginId === pluginId) {
         const [_, cameraName] = mixin.nativeId.split('_');
         storageSettings.values.cameraName = cameraName;

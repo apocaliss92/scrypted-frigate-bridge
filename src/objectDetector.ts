@@ -59,6 +59,27 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                 const obj: FrigateEvent = JSON.parse(message.toString());
                 logger.debug(`Event received: ${JSON.stringify(obj)}`);
 
+                const isNew = obj.type === 'new';
+                const isEnd = obj.type === 'end';
+
+                const hasSnapshot = isNew ? !!obj.after.has_snapshot :
+                    isEnd ? !!obj.before.has_snapshot :
+                        !!obj.after.has_snapshot;
+                const hasClip = isNew ? !!obj.after.has_clip :
+                    isEnd ? !!obj.before.has_clip :
+                        !!obj.after.has_clip;
+                const isFalsePositive = obj.before.false_positive || obj.after.false_positive;
+
+                if (!hasSnapshot || isFalsePositive || !hasClip) {
+                    logger.debug(`Event skipped: ${JSON.stringify({
+                        obj,
+                        hasSnapshot,
+                        isFalsePositive,
+                        hasClip
+                    })}`);
+                    return;
+                }
+
                 const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
 
