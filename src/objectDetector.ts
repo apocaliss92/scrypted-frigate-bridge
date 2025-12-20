@@ -1,10 +1,10 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
-import { audioTopic, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, isAudioLevelValue } from "./utils";
-import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
+import { eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent } from "./utils";
 
 export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -68,26 +68,10 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                 if (foundMixin) {
                     await foundMixin.onFrigateDetectionEvent(obj);
                 }
-            } else {
-                const [_, camera, eventType, eventSubType] = messageTopic.split('/');
-
-                if (eventType === 'audio' && !isAudioLevelValue(eventSubType) && eventSubType !== 'state') {
-                    // frigate/salone/audio/speech
-                    logger.info(`Audio message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
-                    const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
-                        const { cameraName } = mixin.storageSettings.values;
-
-                        return cameraName === camera;
-                    });
-
-                    if (foundMixin) {
-                        await foundMixin.onFrigateAudioEvent(eventSubType, message);
-                    }
-                }
             }
         };
 
-        await mqttClient?.subscribe([eventsTopic, audioTopic], this.mqttCb);
+        await mqttClient?.subscribe([eventsTopic], this.mqttCb);
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {

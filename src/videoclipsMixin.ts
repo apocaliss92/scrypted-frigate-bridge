@@ -2,7 +2,7 @@ import sdk, { MediaObject, ScryptedDeviceBase, ScryptedMimeTypes, Setting, Setti
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
-import { baseFrigateApi, FrigateVideoClip, pluginId } from "./utils";
+import { baseFrigateApi, FrigateVideoClip, guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { sortBy } from "lodash";
 import axios from "axios";
@@ -33,11 +33,12 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
     }
 
     async init() {
-        if (this.pluginId === pluginId) {
-            const [_, cameraName] = this.nativeId.split('_');
-            await this.storageSettings.putSetting('cameraName', cameraName);
-            this.storageSettings.settings.cameraName.readonly = true;
-        }
+        await initFrigateMixin({
+            mixin: this,
+            storageSettings: this.storageSettings,
+            plugin: this.plugin.plugin,
+            logger: this.getLogger(),
+        });
     }
 
     getLogger() {

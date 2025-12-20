@@ -5,7 +5,7 @@
     "type": "git",
     "url": "https://github.com/apocaliss92/scrypted-frigate-bridge"
   },
-  "version": "0.0.37",
+  "version": "0.0.38",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",
@@ -47,6 +47,7 @@
     "@scrypted/common": "file:../scrypted/common",
     "@scrypted/sdk": "0.5.55",
     "axios": "^0.23.0",
+    "fast-fuzzy": "^1.12.0",
     "lodash": "^4.17.21",
     "moment": "^2.30.1",
     "mqtt": "5.10.4"

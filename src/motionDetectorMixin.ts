@@ -2,7 +2,7 @@ import { MotionSensor, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import FrigateBridgeMotionDetector from "./motionDetector";
-import { pluginId } from "./utils";
+import { guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
 
 export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, MotionSensor {
     storageSettings = new StorageSettings(this, {
@@ -29,11 +29,12 @@ export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<an
     }
 
     async init() {
-        if (this.pluginId === pluginId) {
-            const [_, cameraName] = this.nativeId.split('_');
-            await this.storageSettings.putSetting('cameraName', cameraName);
-            this.storageSettings.settings.cameraName.readonly = true;
-        }
+        await initFrigateMixin({
+            mixin: this,
+            storageSettings: this.storageSettings,
+            plugin: this.plugin.plugin,
+            logger: this.getLogger(),
+        });
     }
 
     async onFrigateMotionEvent(value: any) {

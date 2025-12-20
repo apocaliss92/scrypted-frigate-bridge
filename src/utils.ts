@@ -1,6 +1,10 @@
-import { ObjectsDetected } from '@scrypted/sdk';
+import sdk, { ObjectsDetected, ScryptedDevice } from '@scrypted/sdk';
 import axios, { Method } from 'axios';
+import { search } from 'fast-fuzzy';
 import { name } from '../package.json';
+import { StorageSettings } from '@scrypted/sdk/storage-settings';
+import FrigateBridgePlugin from './main';
+import { SettingsMixinDeviceBase } from '@scrypted/sdk/settings-mixin';
 
 export const objectDetectorNativeId = 'frigateObjectDetector';
 export const animalClassifierNativeId = 'frigateAnimalClassifier';
@@ -24,6 +28,8 @@ export type FrigateObjectDetection = ObjectsDetected & { frigateEvent: ObjectsDe
 export const motionTopic = `frigate/+/motion`;
 export const eventsTopic = `frigate/events`;
 export const audioTopic = `frigate/+/audio/+`;
+
+export const excludedAudioLabels = ['state', 'all'];
 
 interface Snapshot {
     frame_time: number;
@@ -136,3 +142,113 @@ export const toSnakeCase = (str: string) => str
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/[-\s]+/g, '_')
     .toLowerCase();
+
+const normalizeNameForMatch = (value: string) => {
+    if (!value)
+        return '';
+
+    return value
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[_\-]+/g, ' ')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+const normalizeForCameraGuess = (value: string) => {
+    const normalized = normalizeNameForMatch(value);
+    if (!normalized)
+        return '';
+
+    const stopwords = new Set([
+        'camera',
+        'cam',
+        'videocamera',
+        'ipcam',
+        'ipc',
+        'onvif',
+    ]);
+
+    return normalized
+        .split(' ')
+        .map(t => t.trim())
+        .filter(t => t && !stopwords.has(t))
+        .join(' ')
+        .trim();
+}
+
+/**
+ * Tries to guess the best matching camera name from a list, based on a Scrypted device name.
+ * Example: deviceName="videocamera salone", candidates=["camera_salone","camera_cucina"] => "camera_salone".
+ */
+export const guessBestCameraName = (deviceName: string, cameraNames: string[]) => {
+    if (!deviceName?.trim() || !cameraNames?.length)
+        return undefined;
+
+    const term = normalizeForCameraGuess(deviceName);
+    if (!term)
+        return undefined;
+
+    const candidates = cameraNames.map(name => ({ name, key: normalizeForCameraGuess(name) }));
+
+    const results = search(term, candidates, {
+        keySelector: c => c.key,
+        returnMatchData: true,
+        threshold: 0.2,
+    });
+
+    return results[0]?.item?.name;
+}
+
+export const initFrigateMixin = async (props: {
+    mixin: SettingsMixinDeviceBase<any>,
+    storageSettings: StorageSettings<any>,
+    plugin: FrigateBridgePlugin,
+    logger: Console,
+}) => {
+    const { mixin, storageSettings, plugin, logger } = props;
+    if (mixin.pluginId === pluginId) {
+        const [_, cameraName] = mixin.nativeId.split('_');
+        storageSettings.values.cameraName = cameraName;
+        storageSettings.settings.cameraName.readonly = true;
+    }
+
+    if (!storageSettings.values.cameraName) {
+        const bestGuess = guessBestCameraName(mixin.name, plugin.storageSettings.values.cameras);
+        if (bestGuess) {
+            logger.log(`Guessed camera name "${bestGuess}" for device "${mixin.name}"`);
+            storageSettings.values.cameraName = bestGuess;
+        }
+    }
+}
+
+export const ensureMixinsOrder = (props: {
+    mixin: SettingsMixinDeviceBase<any>,
+    plugin: FrigateBridgePlugin,
+    logger: Console,
+}) => {
+    const { mixin, logger, plugin } = props;
+    const nvrObjectDetector = sdk.systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
+    const basicObjectDetector = sdk.systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
+    let shouldBeMoved = false;
+    const thisMixinOrder = mixin.mixins.indexOf(plugin.id);
+
+    if (nvrObjectDetector && mixin.mixins.indexOf(nvrObjectDetector) > thisMixinOrder) {
+        shouldBeMoved = true
+    }
+    if (basicObjectDetector && mixin.mixins.indexOf(basicObjectDetector) > thisMixinOrder) {
+        shouldBeMoved = true
+    }
+
+    if (shouldBeMoved) {
+        logger.log('This plugin needs other object detection plugins to come before, fixing');
+        setTimeout(() => {
+            const currentMixins = mixin.mixins.filter(m => m !== plugin.id);
+            currentMixins.push(plugin.id);
+            const thisDevice = sdk.systemManager.getDeviceById(mixin.id);
+            thisDevice.setMixins(currentMixins);
+        }, 1000);
+    }
+}

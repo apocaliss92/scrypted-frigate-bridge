@@ -2,11 +2,9 @@ import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterfac
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
-import { FRIGATE_AUDIO_DETECTOR_INTERFACE, isAudioLevelValue } from "./utils";
+import { audioTopic, excludedAudioLabels, FRIGATE_AUDIO_DETECTOR_INTERFACE, isAudioLevelValue } from "./utils";
 import { FrigateBridgeAudioDetectorMixin } from "./audioDetectorMixin";
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
-
-const audioTopic = `frigate/+/audio/+`;
 
 export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -52,12 +50,9 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
         const logger = this.getLogger();
 
         this.mqttCb = async (messageTopic, message) => {
-            const [_, camera, __, eventSubType] = messageTopic.split('/');
+            const [_, camera, eventType, eventSubType] = messageTopic.split('/');
 
-            if (isAudioLevelValue(eventSubType)) {
-                // frigate/salone/audio/rms
-                // frigate/salone/audio/dBFS
-                logger.info(`Audio level message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
+            if (eventType === 'audio' && !excludedAudioLabels.includes(eventSubType)) {
                 const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
 
@@ -65,7 +60,18 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
                 });
 
                 if (foundMixin) {
-                    await foundMixin.onFrigateAudioEvent(eventSubType, message);
+                    if (isAudioLevelValue(eventSubType)) {
+                        // frigate/salone/audio/rms
+                        // frigate/salone/audio/dBFS
+                        logger.debug(`Audio level message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
+
+                        await foundMixin.onAudioLevelReceived(eventSubType, message);
+                    } else {
+                        // frigate/salone/audio/speech
+                        logger.info(`Audio event message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
+
+                        await foundMixin.onAudioEventReceived(eventSubType, message);
+                    }
                 }
             }
         };
@@ -139,6 +145,7 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
             (interfaces.includes(ScryptedInterface.VideoCamera) || interfaces.includes(ScryptedInterface.Camera))) {
             return [
                 ScryptedInterface.Settings,
+                ScryptedInterface.ObjectDetector,
                 ScryptedInterface.AudioVolumeControl,
                 FRIGATE_AUDIO_DETECTOR_INTERFACE
             ];

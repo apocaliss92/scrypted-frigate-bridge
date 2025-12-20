@@ -2,9 +2,10 @@ import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDe
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
-import { DetectionClass } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { AudioType, convertFrigateBoxToScryptedBox, FrigateEvent, FrigateObjectDetection, isAudioLevelValue, pluginId } from "./utils";
+import { convertFrigateBoxToScryptedBox, ensureMixinsOrder, FrigateEvent, FrigateObjectDetection, guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
+import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
+import { uniq } from "lodash";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
     storageSettings = new StorageSettings(this, {
@@ -23,12 +24,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             immediate: true,
             choices: [],
             defaultValue: [],
-            onGet: async () => {
-                return {
-                    choices: this.plugin.plugin.storageSettings.values.labels,
-                    defaultValue: this.plugin.plugin.storageSettings.values.labels
-                };
-            }
         },
         eventTypes: {
             title: 'Event types',
@@ -73,50 +68,38 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     }
 
     async init() {
-        if (this.pluginId === pluginId) {
-            const [_, cameraName] = this.nativeId.split('_');
-            await this.storageSettings.putSetting('cameraName', cameraName);
-            this.storageSettings.settings.cameraName.readonly = true;
-        }
+        const logger = this.getLogger();
+        ensureMixinsOrder({
+            mixin: this,
+            plugin: this.plugin.plugin,
+            logger,
+        });
+        await initFrigateMixin({
+            mixin: this,
+            storageSettings: this.storageSettings,
+            plugin: this.plugin.plugin,
+            logger,
+        });
 
         await this.updateSettings();
+
+        const { labels, cameraName } = this.storageSettings.values;
+
+        const missingLabels = labels.filter(isAudioLabel);
+        if (missingLabels.length) {
+            const message = `Audio labels were moved to the Frigate audio detector mixin: camera ${cameraName} missingLabels ${missingLabels.join(',')}`;
+            logger.error(message);
+            this.plugin.plugin.log.a(message);
+            this.storageSettings.values.labels = labels.filter(isObjectLabel);
+        }
+
+        const { objectLabels } = this.plugin.plugin.storageSettings.values;
+        this.storageSettings.settings.labels.choices = objectLabels;
+        this.storageSettings.settings.labels.defaultValue = objectLabels;
     }
 
     async updateSettings() {
-        const { labels } = this.storageSettings.values;
-        if (labels.some(label => isAudioLevelValue(label))) {
-            const fixedLabels = labels.filter(label =>
-                !isAudioLevelValue(label)
-            );
-            await this.storageSettings.putSetting('labels', fixedLabels);
-        }
-
         await this.setZones(this.storageSettings.values.cameraName);
-    }
-
-    ensureMixinsOrder() {
-        const logger = this.getLogger();
-        const nvrObjectDetector = sdk.systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
-        const basicObjectDetector = sdk.systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
-        let shouldBeMoved = false;
-        const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
-
-        if (nvrObjectDetector && this.mixins.indexOf(nvrObjectDetector) > thisMixinOrder) {
-            shouldBeMoved = true
-        }
-        if (basicObjectDetector && this.mixins.indexOf(basicObjectDetector) > thisMixinOrder) {
-            shouldBeMoved = true
-        }
-
-        if (shouldBeMoved) {
-            logger.log('This plugin needs other object detection plugins to come before, fixing');
-            setTimeout(() => {
-                const currentMixins = this.mixins.filter(mixin => mixin !== this.plugin.id);
-                currentMixins.push(this.plugin.id);
-                const thisDevice = sdk.systemManager.getDeviceById(this.id);
-                thisDevice.setMixins(currentMixins);
-            }, 1000);
-        }
     }
 
     async getDetectionInput(detectionId: string, eventId?: any): Promise<MediaObject> {
@@ -126,10 +109,10 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         try {
             const jpeg = await axios.get(url, { responseType: "arraybuffer" });
             const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
-            logger.info(`Frigate event ${detectionId} found`);
+            logger.info(`Frigate object event ${detectionId} found`);
             return mo;
         } catch (e) {
-            logger.info(`Error fetching Frigate event ${detectionId} ${eventId} from ${url}`, e.message);
+            logger.info(`Error fetching Frigate object event ${detectionId} ${eventId} from ${url}`, e.message);
             return this.mixinDevice.getDetectionInput(detectionId, eventId);
         }
     }
@@ -141,10 +124,10 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         } catch { }
 
         return {
-            classes: [
+            classes: uniq([
                 ...deviceClasses,
                 ...this.storageSettings.values.labels,
-            ]
+            ])
         };
     }
 
@@ -176,7 +159,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         const frigateEvent: ObjectsDetected = {
             timestamp,
             inputDimensions: [0, 0],
-            detectionId: event.after.id,
+            detectionId: event.after.id ?? event.before.id,
             detections: [
                 { className: 'motion', score: 1, boundingBox },
                 {
@@ -218,34 +201,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         })}`);
         logger.info(JSON.stringify(detection));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
-    }
-
-    async onFrigateAudioEvent(audioType: AudioType, value: any) {
-        const { labels } = this.storageSettings.values;
-        const now = Date.now();
-
-        const logger = this.getLogger();
-        if (labels?.includes(audioType) && value === 'ON') {
-            const detection: ObjectsDetected = {
-                timestamp: now,
-                inputDimensions: [0, 0],
-                sourceId: pluginId,
-                detections: [
-                    {
-                        className: DetectionClass.Audio,
-                        score: 1,
-                        label: audioType
-                    },
-                ]
-            }
-
-            logger.log(`Audio event forwarded, ${JSON.stringify({
-                detection,
-            })}`);
-            this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
-        } else {
-            logger.info('Audio event skipped', audioType, value);
-        }
     }
 
     async getMixinSettings(): Promise<Setting[]> {

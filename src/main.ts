@@ -12,10 +12,12 @@ import FrigateBridgeObjectDetector from "./objectDetector";
 import { animalClassifierNativeId, audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, vehicleClassifierNativeId, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
+import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
-    'labels' |
+    'objectLabels' |
+    'audioLabels' |
     'cameras' |
     'cameraZones' |
     'exportCameraDevice' |
@@ -40,8 +42,15 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             description: 'URL to the Frigate server. Example: http://192.168.1.100:5000/api',
             type: 'string',
         },
-        labels: {
-            title: 'Available labels',
+        objectLabels: {
+            title: 'Available object labels',
+            type: 'string',
+            readonly: true,
+            multiple: true,
+            choices: [],
+        },
+        audioLabels: {
+            title: 'Available audio labels',
             type: 'string',
             readonly: true,
             multiple: true,
@@ -177,20 +186,27 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             });
 
             const labels = res.data as string[];
-            logger.log(`Labels found: ${labels}`);
-            this.putSetting('labels', [...labels]);
+            const audioLabels = labels.filter(isAudioLabel);
+            const objectLabels = labels.filter(isObjectLabel);
+            logger.log(`Labels found: ${JSON.stringify({
+                labels,
+                audioLabels,
+                objectLabels,
+            })}`);
+            this.storageSettings.values.audioLabels = audioLabels;
+            this.storageSettings.values.objectLabels = objectLabels;
 
             this.config = await this.getConfiguration();
 
             const cameras = Object.keys((this.config ?? {})?.cameras);
             logger.log(`Cameras found: ${cameras}`);
-            this.putSetting('cameras', cameras);
+            this.storageSettings.values.cameras = cameras;
 
             const cameraZones = {}
             for (const cameraName of cameras) {
                 cameraZones[cameraName] = Object.keys(this.config?.cameras?.[cameraName]?.zones ?? {}) ?? [];
             }
-            this.putSetting('cameraZones', JSON.stringify(cameraZones));
+            this.storageSettings.values.cameraZones = JSON.stringify(cameraZones);
             logger.log(`Zones found: ${JSON.stringify(cameraZones)}`);
         }
 
@@ -592,7 +608,7 @@ ${cameraName}:
         await super.createDevice(settings, cameraNativeId);
 
         const device = await this.getDevice(cameraNativeId) as FrigateBridgeCamera;
-        device.storageSettings.putSetting('cameraName', cameraName);
+        device.storageSettings.values.cameraName = cameraName;
 
         return cameraNativeId;
     }

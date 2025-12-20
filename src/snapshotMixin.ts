@@ -2,7 +2,7 @@ import sdk, { Camera, MediaObject, RequestPictureOptions, ResponsePictureOptions
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import FrigateBridgeSnapshot from "./snapshot";
-import { pluginId } from "./utils";
+import { guessBestCameraName, pluginId } from "./utils";
 
 export class FrigateBridgeSnapshotMixin extends SettingsMixinDeviceBase<any> implements Settings, Camera {
     storageSettings = new StorageSettings(this, {
@@ -32,7 +32,7 @@ export class FrigateBridgeSnapshotMixin extends SettingsMixinDeviceBase<any> imp
     takePicture(options?: RequestPictureOptions): Promise<MediaObject> {
         throw new Error("Method not implemented.");
     }
-    
+
     getPictureOptions(): Promise<ResponsePictureOptions[]> {
         throw new Error("Method not implemented.");
     }
@@ -42,6 +42,10 @@ export class FrigateBridgeSnapshotMixin extends SettingsMixinDeviceBase<any> imp
             const [_, cameraName] = this.nativeId.split('_');
             await this.storageSettings.putSetting('cameraName', cameraName);
             this.storageSettings.settings.cameraName.readonly = true;
+        }
+
+        if (!this.storageSettings.values.cameraName) {
+            this.storageSettings.values.cameraName = guessBestCameraName(this.name, this.plugin.plugin.storageSettings.values.cameras);
         }
     }
 
