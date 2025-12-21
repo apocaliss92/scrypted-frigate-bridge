@@ -19,6 +19,7 @@ type StorageKey = BaseSettingsKey |
     'objectLabels' |
     'audioLabels' |
     'cameras' |
+    'faces' |
     'cameraZones' |
     'cameraZonesDetails' |
     'exportCameraDevice' |
@@ -59,6 +60,13 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         },
         cameras: {
             title: 'Available cameras',
+            type: 'string',
+            readonly: true,
+            multiple: true,
+            choices: [],
+        },
+        faces: {
+            title: 'Available faces',
             type: 'string',
             readonly: true,
             multiple: true,
@@ -218,6 +226,16 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             this.storageSettings.values.cameraZones = JSON.stringify(cameraZones);
             this.storageSettings.values.cameraZonesDetails = JSON.stringify(cameraZonesDetails);
             logger.log(`Zones found: ${JSON.stringify(cameraZones)}`);
+
+
+            const facesResponse = await baseFrigateApi({
+                apiUrl: this.storageSettings.values.serverUrl,
+                service: 'faces',
+            });
+
+            const faces = Object.keys(facesResponse.data).filter(face => face !== 'train');
+            logger.log(`Faces found: ${JSON.stringify(faces)}`);
+            this.storageSettings.values.faces = faces;
         }
 
         setInterval(async () => await fn(), 1000 * 60 * 10);
