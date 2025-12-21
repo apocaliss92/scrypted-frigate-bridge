@@ -20,6 +20,7 @@ type StorageKey = BaseSettingsKey |
     'audioLabels' |
     'cameras' |
     'cameraZones' |
+    'cameraZonesDetails' |
     'exportCameraDevice' |
     'exportWithRebroadcast' |
     'enableBirdseyeCamera' |
@@ -64,6 +65,10 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             choices: [],
         },
         cameraZones: {
+            json: true,
+            hide: true,
+        },
+        cameraZonesDetails: {
             json: true,
             hide: true,
         },
@@ -202,11 +207,16 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             logger.log(`Cameras found: ${cameras}`);
             this.storageSettings.values.cameras = cameras;
 
-            const cameraZones = {}
+            const cameraZones = {};
+            const cameraZonesDetails = {};
             for (const cameraName of cameras) {
-                cameraZones[cameraName] = Object.keys(this.config?.cameras?.[cameraName]?.zones ?? {}) ?? [];
+                const zones = this.config?.cameras?.[cameraName]?.zones ?? {};
+                cameraZones[cameraName] = Object.keys(zones) ?? [];
+                // Preserve the full Frigate zone config (coordinates, filters, colors, etc.).
+                cameraZonesDetails[cameraName] = zones;
             }
             this.storageSettings.values.cameraZones = JSON.stringify(cameraZones);
+            this.storageSettings.values.cameraZonesDetails = JSON.stringify(cameraZonesDetails);
             logger.log(`Zones found: ${JSON.stringify(cameraZones)}`);
         }
 

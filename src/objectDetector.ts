@@ -70,7 +70,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                         !!obj.after.has_clip;
                 const isFalsePositive = obj.before.false_positive || obj.after.false_positive;
 
-                if (!hasSnapshot || isFalsePositive || !hasClip) {
+                if (isFalsePositive) {
                     logger.debug(`Event skipped: ${JSON.stringify({
                         obj,
                         hasSnapshot,
