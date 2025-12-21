@@ -47,10 +47,15 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             title: 'Zones (with path)',
             readonly: true,
             json: true,
+            hide: true
         },
     });
 
     logger: Console;
+
+    private readonly seenDetectionLogKeys = new Set<string>();
+    private seenDetectionLogKeysLastCleanMs = Date.now();
+    private readonly seenDetectionLogKeysTtlMs = 2 * 60 * 1000;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -62,6 +67,36 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
         const logger = this.getLogger();
         this.init().catch(logger.error);
+    }
+
+    private maybeCleanSeenDetectionLogKeys(nowMs = Date.now()) {
+        if (nowMs - this.seenDetectionLogKeysLastCleanMs < this.seenDetectionLogKeysTtlMs)
+            return;
+
+        this.seenDetectionLogKeys.clear();
+        this.seenDetectionLogKeysLastCleanMs = nowMs;
+    }
+
+    private makeDetectionLogKey(detectionId: any, detection: ObjectDetectionResult, zonesKey: string): string {
+        const className = detection?.className ?? '';
+        const label = (detection as any)?.label ?? '';
+        return `${detectionId ?? ''}|${className}|${label}|${zonesKey ?? ''}`;
+    }
+
+    private shouldLogDetectionsOnce(detectionId: any, detections: ObjectDetectionResult[], zonesKey: string): boolean {
+        this.maybeCleanSeenDetectionLogKeys();
+        if (!detections?.length)
+            return true;
+
+        const keys = detections.map(d => this.makeDetectionLogKey(detectionId, d, zonesKey));
+        const hasNew = keys.some(k => !this.seenDetectionLogKeys.has(k));
+        if (!hasNew)
+            return false;
+
+        for (const k of keys)
+            this.seenDetectionLogKeys.add(k);
+
+        return true;
     }
 
     async setZones(cameraName: string) {
@@ -258,13 +293,16 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             frigateEvent
         }
 
-        logger.log(`Detection event forwarded, ${JSON.stringify({
-            eventLabel,
-            subLabel,
-            event,
-            detection,
-        })}`);
-        logger.info(JSON.stringify(detection));
+        const zonesKey = (event.after.current_zones ?? []).slice().sort().join(',');
+        const shouldLog = this.shouldLogDetectionsOnce(detectionId, frigateDetections, zonesKey);
+        if (shouldLog) {
+            logger.log(`Detection event forwarded, ${JSON.stringify({
+                eventLabel,
+                subLabel,
+                event
+            })}`);
+            logger.info(JSON.stringify(detection));
+        }
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
     }
 
@@ -293,6 +331,8 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     async release() {
         const logger = this.getLogger();
         logger.info('Releasing mixin');
+        this.seenDetectionLogKeys.clear();
+        this.seenDetectionLogKeysLastCleanMs = Date.now();
     }
 
     getLogger() {
