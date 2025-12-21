@@ -1,6 +1,7 @@
 import { MediaObject, PictureOptions, Setting } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import EventEmitter from "events";
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";
@@ -27,11 +28,27 @@ class FrigateBridgeBirdseyeCamera extends RtspSmartCamera {
     }
     videoStreamOptions: Promise<UrlMediaStreamOptions[]>;
 
+    logger: Console;
+
     storageSettings = new StorageSettings(this, {
+        logLevel: {
+            ...logLevelSetting,
+        },
     });
 
     constructor(nativeId: string, public provider: FrigateBridgePlugin) {
         super(nativeId, provider);
+    }
+
+    getLogger() {
+        if (!this.logger) {
+            this.logger = getBaseLogger({
+                console: this.console,
+                storage: this.storageSettings,
+            });
+        }
+
+        return this.logger;
     }
 
     createRtspMediaStreamOptions(url: string, index: number) {

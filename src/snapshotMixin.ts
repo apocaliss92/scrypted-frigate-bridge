@@ -1,11 +1,15 @@
 import sdk, { Camera, MediaObject, RequestPictureOptions, ResponsePictureOptions, ScryptedDeviceBase, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgeSnapshot from "./snapshot";
 import { guessBestCameraName, pluginId } from "./utils";
 
 export class FrigateBridgeSnapshotMixin extends SettingsMixinDeviceBase<any> implements Settings, Camera {
     storageSettings = new StorageSettings(this, {
+        logLevel: {
+            ...logLevelSetting,
+        },
         cameraName: {
             title: 'Frigate camera name',
             type: 'string',
@@ -51,7 +55,7 @@ export class FrigateBridgeSnapshotMixin extends SettingsMixinDeviceBase<any> imp
 
     getLogger() {
         if (!this.logger) {
-            this.logger = this.plugin.plugin.getLogger({
+            this.logger = getBaseLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });

@@ -14,6 +14,7 @@ export default class FrigateBridgeVideoclips extends ScryptedDeviceBase implemen
     storageSettings = new StorageSettings(this, this.initStorage);
     currentMixinsMap: Record<string, FrigateBridgeVideoclipsMixin> = {};
     plugin: FrigateBridgePlugin;
+    logger: Console;
 
     constructor(nativeId: string, plugin: FrigateBridgePlugin) {
         super(nativeId);
@@ -32,14 +33,15 @@ export default class FrigateBridgeVideoclips extends ScryptedDeviceBase implemen
         return this.storageSettings.putSetting(key, value);
     }
 
-    public getLogger(device?: ScryptedDeviceBase) {
-        const newLogger = getBaseLogger({
-            console: device ? this.currentMixinsMap[device.id].console : this.console,
-            storage: this.storageSettings,
-            friendlyName: `scrypted_frigate_videoclips_${device ? device?.id : 'device'}`
-        });
+    getLogger() {
+        if (!this.logger) {
+            this.logger = getBaseLogger({
+                console: this.console,
+                storage: this.storageSettings,
+            });
+        }
 
-        return newLogger;
+        return this.logger;
     }
 
     async getSettings() {

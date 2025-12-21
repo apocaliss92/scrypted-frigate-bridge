@@ -1,6 +1,7 @@
 import sdk, { MediaObject, ScryptedDeviceBase, ScryptedMimeTypes, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { baseFrigateApi, FrigateVideoClip, guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
@@ -9,10 +10,19 @@ import axios from "axios";
 
 export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
     storageSettings = new StorageSettings(this, {
+        logLevel: {
+            ...logLevelSetting,
+        },
         cameraName: {
             title: 'Frigate camera name',
             type: 'string',
             immediate: true,
+        },
+        fetchMixinClips: {
+            title: 'Fetch upstream mixin clips',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false
         },
     });
 
@@ -43,7 +53,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
     getLogger() {
         if (!this.logger) {
-            this.logger = this.plugin.plugin.getLogger({
+            this.logger = getBaseLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });
@@ -97,15 +107,17 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
         const { count, endTime, startTime } = options ?? {};
-        const { cameraName } = this.storageSettings.values;
+        const { cameraName, fetchMixinClips } = this.storageSettings.values;
         const logger = this.getLogger();
 
         const videoclips: VideoClip[] = [];
 
-        try {
-            const deviceClips = await this.mixinDevice.getVideoClips(options);
-            videoclips.push(...deviceClips);
-        } catch { }
+        if (fetchMixinClips) {
+            try {
+                const deviceClips = await this.mixinDevice.getVideoClips(options);
+                videoclips.push(...deviceClips);
+            } catch { }
+        }
 
         if (!cameraName) {
             logger.log('Camera name not set');

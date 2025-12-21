@@ -1,6 +1,6 @@
 import { ClusterForkInterface, MediaObject, ObjectDetection, ObjectDetectionGeneratorResult, ObjectDetectionGeneratorSession, ObjectDetectionModel, ObjectDetectionSession, ObjectsDetected, ScryptedDeviceBase, SettingValue, VideoFrame } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 
 export default class FrigateBridgeClassifier extends ScryptedDeviceBase implements ObjectDetection, ClusterForkInterface {
@@ -46,7 +46,7 @@ export default class FrigateBridgeClassifier extends ScryptedDeviceBase implemen
 
     getLogger() {
         if (!this.logger) {
-            this.logger = this.plugin.getLogger({
+            this.logger = getBaseLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });

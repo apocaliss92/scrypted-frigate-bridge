@@ -2,6 +2,7 @@ import sdk, { AudioVolumeControl, AudioVolumes, MediaObject, ObjectDetectionType
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { DetectionClass } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeAudioDetector from "./audioDetector";
 import { AudioType, ensureMixinsOrder, initFrigateMixin, pluginId } from "./utils";
@@ -9,6 +10,9 @@ import { uniq } from "lodash";
 
 export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, AudioVolumeControl, ObjectDetector {
     storageSettings = new StorageSettings(this, {
+        logLevel: {
+            ...logLevelSetting,
+        },
         cameraName: {
             title: 'Frigate camera name',
             type: 'string',
@@ -173,7 +177,7 @@ export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any
 
     getLogger() {
         if (!this.logger) {
-            this.logger = this.plugin.plugin.getLogger({
+            this.logger = getBaseLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });

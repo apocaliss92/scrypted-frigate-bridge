@@ -1,6 +1,6 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeMotionDetectorMixin } from "./motionDetectorMixin";
 import { FRIGATE_MOTION_DETECTOR_INTERFACE, motionTopic } from "./utils";
@@ -112,7 +112,7 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
 
     getLogger() {
         if (!this.logger) {
-            this.logger = this.plugin.getLogger({
+            this.logger = getBaseLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });

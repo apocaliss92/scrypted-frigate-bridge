@@ -2,12 +2,16 @@ import sdk, { MediaObject, PictureOptions, Setting } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import EventEmitter from "events";
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";
 
 class FrigateBridgeCamera extends RtspSmartCamera {
     storageSettings = new StorageSettings(this, {
+        logLevel: {
+            ...logLevelSetting,
+        },
         cameraName: {
             title: 'Frigate camera name',
             type: 'string',
@@ -54,7 +58,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
 
     getLogger() {
         if (!this.logger) {
-            this.logger = this.provider.getLogger({
+            this.logger = getBaseLogger({
                 console: this.console,
                 storage: this.storageSettings,
             });
