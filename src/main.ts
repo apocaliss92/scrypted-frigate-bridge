@@ -1,23 +1,23 @@
-import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
+import sdk, { AdoptDevice, Device, DeviceDiscovery, DeviceProvider, DiscoveredDevice, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
+import { parse as parseYaml } from 'yaml';
 import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
-import { parse as parseYaml } from 'yaml';
+import { RtspCamera, RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeAudioDetector from "./audioDetector";
-import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
 import FrigateBridgeCamera from "./camera";
 import FrigateBridgeClassifier from "./classsifier";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
+import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, StreamSource, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
     'baseGo2rtcUrl' |
+    'detectedStreamsDefaultPreset' |
     'objectLabels' |
     'audioLabels' |
     'cameras' |
@@ -27,11 +27,10 @@ type StorageKey = BaseSettingsKey |
     'cameraZonesDetails' |
     'exportCameraDevice' |
     'exportWithRebroadcast' |
-    'enableBirdseyeCamera' |
     'logLevel' |
     'exportButton';
 
-export default class FrigateBridgePlugin extends RtspProvider implements DeviceProvider, HttpRequestHandler, DeviceCreator {
+export default class FrigateBridgePlugin extends RtspProvider implements DeviceProvider, HttpRequestHandler, DeviceDiscovery {
     initStorage: StorageSettingsDict<StorageKey> = {
         ...getBaseSettings({
             onPluginSwitch: (_, enabled) => {
@@ -52,6 +51,13 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             description: 'Base RTSP URL for go2rtc streams (e.g. rtsp://192.168.1.100:8554). Default is derived from the Frigate server URL host.',
             type: 'string',
             placeholder: 'rtsp://<frigate-host>:8554',
+        },
+        detectedStreamsDefaultPreset: {
+            title: 'Default streams source preset',
+            description: 'Default source used for the streams. Input will use the urls configured on Frigate, go2Rtc will use the go2Rtc exposed streams.',
+            type: 'string',
+            defaultValue: StreamSource.Input,
+            choices: Object.values(StreamSource),
         },
         objectLabels: {
             title: 'Available object labels',
@@ -93,12 +99,6 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             json: true,
             hide: true,
         },
-        enableBirdseyeCamera: {
-            title: 'Enable birdseye camera',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: true,
-        },
         exportCameraDevice: {
             title: 'Camera',
             group: 'Export camera',
@@ -127,21 +127,28 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     motionDetectorDevice: FrigateBridgeMotionDetector;
     audioDetectorDevice: FrigateBridgeAudioDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
-    birdseyeCamera: FrigateBridgeBirdseyeCamera;
     animalClassifier: FrigateBridgeClassifier;
     vehicleClassifier: FrigateBridgeClassifier;
-    camerasMap: Record<string, FrigateBridgeCamera> = {};
+    camerasMap: Record<string, RtspCamera> = {};
     logger: Console;
     config: any;
     lastConfigFetch: number;
     configRawJson: any;
     lastConfigRawJsonFetch: number;
+    discoveredDevices = new Map<string, {
+        device: Device;
+        description: string;
+    }>();
 
     constructor(nativeId: string) {
         super(nativeId);
         const logger = this.getLogger();
 
         this.initData().catch(logger.log);
+    }
+
+    getScryptedDeviceCreator(): string {
+        return 'Frigate Bridge Plugin';
     }
 
     async startStop(enabled: boolean) {
@@ -189,15 +196,11 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         return this.logger;
     }
 
-    getScryptedDeviceCreator(): string {
-        return 'Frigate birdseye camera';
-    }
-
-    async getConfiguration() {
+    async getConfiguration(force?: boolean) {
         const logger = this.getLogger();
         const now = Date.now();
 
-        if (this.config && (now < this.lastConfigFetch + 1000 * 60 * 5)) {
+        if (!force && this.config && (now < this.lastConfigFetch + 1000 * 60 * 5)) {
             return this.config;
         }
 
@@ -312,6 +315,11 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             const faces = Object.keys(facesResponse.data).filter(face => face !== 'train');
             logger.log(`Faces found: ${JSON.stringify(faces)}`);
             this.storageSettings.values.faces = faces;
+
+            const birdseyeDevice = sdk.systemManager.getDeviceById(this.pluginId, birdseyeCameraNativeId);
+            if (birdseyeDevice) {
+                await sdk.deviceManager.onDeviceRemoved(birdseyeCameraNativeId);
+            }
         }
 
         setInterval(async () => await fn(), 1000 * 60 * 10);
@@ -370,25 +378,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         //     }
         // );
 
-        await this.executeCameraDiscovery(this.storageSettings.values.enableBirdseyeCamera);
         await this.startStop(this.storageSettings.values.pluginEnabled);
-    }
-
-    async executeCameraDiscovery(active: boolean) {
-        const interfaces: ScryptedInterface[] = [ScryptedInterface.Camera];
-
-        if (active) {
-            interfaces.push(ScryptedInterface.VideoCamera);
-        }
-
-        await sdk.deviceManager.onDeviceDiscovered(
-            {
-                name: 'Frigate Birdseye',
-                nativeId: birdseyeCameraNativeId,
-                interfaces,
-                type: ScryptedDeviceType.Camera,
-            }
-        );
     }
 
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
@@ -623,11 +613,41 @@ ${cameraName}:
         // logger.log(response);
     }
 
-    getAdditionalInterfaces() {
+    getCameraInterfaces() {
         return [
             ScryptedInterface.VideoCameraConfiguration,
             ScryptedInterface.Camera,
+            ScryptedInterface.VideoCamera,
+            ScryptedInterface.Settings,
         ];
+    }
+
+    async getCamera(nativeId: string) {
+        const found = this.camerasMap[nativeId];
+
+        if (found) {
+            return found;
+        } else {
+            const cameraName = nativeId.split('__')[1];
+            const { detectedStreamsDefaultPreset } = this.storageSettings.values;
+
+            // const isBirdseye = nativeId === birdseyeCameraNativeIdV2;
+
+            // if (isBirdseye) {
+            //     const newCamera = new FrigateBridgeBirdseyeCamera(nativeId, this);
+
+            //     this.camerasMap[nativeId] = newCamera;
+            //     return newCamera;
+            // } else {
+            const newCamera = new FrigateBridgeCamera(nativeId, this, cameraName);
+
+            newCamera.storageSettings.values.cameraName = cameraName;
+            newCamera.storageSettings.values.detectedStreamsDefaultPreset = detectedStreamsDefaultPreset;
+
+            this.camerasMap[nativeId] = newCamera;
+            return newCamera;
+            // }
+        }
     }
 
     async getDevice(nativeId: string) {
@@ -643,20 +663,8 @@ ${cameraName}:
         if (nativeId === videoclipsNativeId)
             return this.videoclipsDevice ||= new FrigateBridgeVideoclips(videoclipsNativeId, this);
 
-        if (nativeId === birdseyeCameraNativeId)
-            return this.birdseyeCamera ||= new FrigateBridgeBirdseyeCamera(birdseyeCameraNativeId, this);
-
         if (nativeId.startsWith(importedCameraNativeIdPrefix)) {
-            const found = this.camerasMap[nativeId];
-
-            if (found) {
-                return found;
-            } else {
-                const [_, cameraName] = nativeId.split('__');
-                const newCamera = new FrigateBridgeCamera(nativeId, this, cameraName);
-                this.camerasMap[nativeId] = newCamera;
-                return newCamera;
-            }
+            return this.getCamera(nativeId);
         }
     }
 
@@ -681,45 +689,73 @@ ${cameraName}:
         }
     }
 
-    async getCreateDeviceSettings(): Promise<Setting[]> {
-        const config = await this.getConfiguration();
+    async syncCameras(force: boolean) {
+        const config = await this.getConfiguration(force);
         const cameraNames = Object.keys(config.cameras);
-        return [
-            {
-                key: 'cameraName',
-                title: 'Camera to import',
-                type: 'string',
-                choices: cameraNames
-            },
-            {
-                key: 'streamsPreset',
-                title: 'Streams preset',
-                description: 'Default preset used for detected streams. Input will use the urls configured on Frigate, go2Rtc will use the go2Rtc exposed streams.',
-                type: 'string',
-                choices: ['Input', 'go2Rtc'],
-                value: 'Input',
-            },
-        ]
-    }
+        cameraNames.push(birdseyeStreamName);
 
-    async createDevice(settings: DeviceCreatorSettings, nativeId?: string): Promise<string> {
-        const cameraName = settings.cameraName as string;
-        const streamsPreset = (settings.streamsPreset as string) || 'Input';
+        for (const cameraName of cameraNames) {
+            const nativeId = `${importedCameraNativeIdPrefix}__${cameraName}`;
 
-        if (!cameraName) {
-            this.console.log('Camera name is required');
-            return;
+            const friendly_name = (() => {
+                const withSpaces = cameraName.replace(/_/g, ' ').trim();
+                if (!withSpaces)
+                    return cameraName;
+
+                const lower = withSpaces.toLowerCase();
+                return lower.charAt(0).toUpperCase() + lower.slice(1);
+            })();
+
+            const device: Device = {
+                nativeId,
+                name: friendly_name,
+                interfaces: this.getCameraInterfaces(),
+                type: ScryptedDeviceType.Camera,
+            };
+
+            if (sdk.deviceManager.getNativeIds().includes(nativeId)) {
+                sdk.deviceManager.onDeviceDiscovered(device);
+                continue;
+            }
+
+            if (this.discoveredDevices.has(nativeId)) {
+                continue;
+            }
+
+            this.discoveredDevices.set(nativeId, {
+                device,
+                description: `${friendly_name}`,
+            });
         }
 
-        settings.newCamera = cameraName;
-        const cameraNativeId = `${importedCameraNativeIdPrefix}__${cameraName}`;
-        await super.createDevice(settings, cameraNativeId);
+        const logger = this.getLogger();
+        logger.log(`${cameraNames} cameras found to discover`);
+    }
 
-        const device = await this.getDevice(cameraNativeId) as FrigateBridgeCamera;
-        device.storageSettings.values.cameraName = cameraName;
-        device.storageSettings.values.detectedStreamsDefaultPreset = streamsPreset;
+    async discoverDevices(scan?: boolean): Promise<DiscoveredDevice[]> {
+        if (scan) {
+            await this.syncCameras(true);
+        }
 
-        return cameraNativeId;
+        return [...this.discoveredDevices.values()].map(d => ({
+            ...d.device,
+            description: d.description,
+        }));
+    }
+
+    async adoptDevice(adopt: AdoptDevice): Promise<string> {
+        const { nativeId } = adopt;
+        const entry = this.discoveredDevices.get(nativeId);
+        await this.onDeviceEvent(ScryptedInterface.DeviceDiscovery, await this.discoverDevices());
+
+        if (!entry)
+            throw new Error('device not found');
+
+        await sdk.deviceManager.onDeviceDiscovered(entry.device);
+        this.discoveredDevices.delete(nativeId);
+        const device = await this.getCamera(nativeId);
+
+        return device?.id;
     }
 }
 

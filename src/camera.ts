@@ -1,11 +1,10 @@
-import sdk, { MediaObject, MediaStreamDestination, PictureOptions, ScryptedInterface, Setting, SettingValue } from "@scrypted/sdk";
+import sdk, { MediaObject, MediaStreamDestination, PictureOptions, Setting, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import EventEmitter from "events";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";
-import { objectDetectorNativeId, audioDetectorNativeId, motionDetectorNativeId, videoclipsNativeId } from "./utils";
+import { StreamSource, audioDetectorNativeId, birdseyeStreamName, motionDetectorNativeId, objectDetectorNativeId, videoclipsNativeId } from "./utils";
 
 class FrigateBridgeCamera extends RtspSmartCamera {
     storageSettings = new StorageSettings(this, {
@@ -31,6 +30,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
     videoStreamOptions: Promise<UrlMediaStreamOptions[]>;
     streamsData: { path: string, roles: string[] }[] = [];
     logger: Console;
+    isBirdseyeCamera = false;
 
     constructor(
         nativeId: string,
@@ -40,16 +40,16 @@ class FrigateBridgeCamera extends RtspSmartCamera {
         super(nativeId, provider);
         const logger = this.getLogger();
 
+        this.isBirdseyeCamera = this.cameraName === birdseyeStreamName;
+
         this.init().catch(logger.log);
     }
 
     private readonly detectedStreamsGroup = 'Detected streams';
 
-    private readonly presetInput = 'Input' as const;
-    private readonly presetGo2Rtc = 'go2Rtc' as const;
-    private readonly detectedStreamPresetChoices = [this.presetInput, this.presetGo2Rtc] as const;
+    private readonly detectedStreamPresetChoices = Object.values(StreamSource);
 
-    private isDetectedStreamPreset(value: any): value is (typeof this.detectedStreamPresetChoices)[number] {
+    private isDetectedStreamPreset(value: StreamSource) {
         return this.detectedStreamPresetChoices.includes(value);
     }
 
@@ -128,6 +128,10 @@ class FrigateBridgeCamera extends RtspSmartCamera {
     }
 
     private refreshDetectedStreamsSettings() {
+        if (!this.isBirdseyeCamera) {
+            return;
+        }
+
         const destinationChoices = this.getDetectedStreamsSettingsChoices();
         const streams = this.streamsData ?? [];
         const go2rtcStreamNames = this.getGo2RtcStreamNames();
@@ -135,7 +139,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
         const { detectedStreamsDefaultPreset } = this.storageSettings.values;
         const defaultPreset = this.isDetectedStreamPreset(detectedStreamsDefaultPreset)
             ? detectedStreamsDefaultPreset
-            : this.presetInput;
+            : this.provider.storageSettings.values.detectedStreamsDefaultPreset;
 
         for (let index = 0; index < streams.length; index++) {
             const { path, roles } = streams[index];
@@ -152,12 +156,13 @@ class FrigateBridgeCamera extends RtspSmartCamera {
             const destinationsKey = this.getDetectedStreamKey(index, 'destinations');
             const rolesKey = this.getDetectedStreamKey(index, 'roles');
 
-            const storedPreset = this.storage.getItem(presetKey);
-            const preset = this.isDetectedStreamPreset(storedPreset) ? storedPreset : defaultPreset;
-            const showInputUrl = preset === this.presetInput;
+            const storedPreset = this.storage.getItem(presetKey) as StreamSource;
+            const preset = (this.isDetectedStreamPreset(storedPreset) ? storedPreset : defaultPreset);
+            const isInput = preset === StreamSource.Input;
 
             this.storageSettings.settings[presetKey] = {
-                title: 'Stream source',
+                title: 'Streams source preset',
+                description: 'Source used for the streams. Input will use the urls configured on Frigate, go2Rtc will use the go2Rtc exposed streams.',
                 type: 'string',
                 group: this.detectedStreamsGroup,
                 subgroup,
@@ -176,7 +181,8 @@ class FrigateBridgeCamera extends RtspSmartCamera {
                 group: this.detectedStreamsGroup,
                 subgroup,
                 defaultValue: path,
-                hide: !showInputUrl,
+                // readonly: true,
+                hide: !isInput,
             };
 
             this.storageSettings.settings[go2rtcStreamKey] = {
@@ -187,7 +193,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
                 immediate: true,
                 combobox: true,
                 choices: go2rtcStreamNames,
-                hide: showInputUrl,
+                hide: isInput,
                 onPut: async () => {
                     this.refreshDetectedStreamsSettings();
                 }
@@ -212,7 +218,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
                 multiple: true,
                 readonly: true,
                 defaultValue: roles ?? [],
-                choices: ['detect', 'record', 'audio']
+                choices: ['detect', 'record', 'audio'],
             };
         }
     }
@@ -237,7 +243,6 @@ class FrigateBridgeCamera extends RtspSmartCamera {
 
         const config = rawInputs ? undefined : await this.provider.getConfiguration();
         const inputs = (rawInputs ?? config?.cameras?.[this.cameraName]?.ffmpeg?.inputs ?? []) as any[];
-        this.console.log(JSON.stringify({ rawJson, config, cameraName: this.cameraName }));
 
         this.streamsData = (Array.isArray(inputs) ? inputs : [])
             .map((i: any) => {
@@ -253,46 +258,43 @@ class FrigateBridgeCamera extends RtspSmartCamera {
             })
             .filter(Boolean) as { path: string, roles: string[] }[];
 
-        // const streamUrl = this.storage.getItem('snapshot:snapshotUrl');
-        // if (!streamUrl) {
-        //     const snapshotUrl = this.getSnapshotUrl();
-        //     this.putSetting('snapshot:snapshotUrl', snapshotUrl);
-        //     logger.log(`Set snapshot URL to ${snapshotUrl}`);
-        // }
+        if (!this.isBirdseyeCamera) {
+            const listener = sdk.systemManager.listen(async (eventSource, eventDetails, eventData) => {
+                if (this.mixins.length === 4 && !this.storageSettings.values.nativeMixinsAdded) {
+                    this.storageSettings.values.nativeMixinsAdded = true;
+                    const currentMixins = this.mixins;
 
-        const listener = sdk.systemManager.listen(async (eventSource, eventDetails, eventData) => {
-            if (this.mixins.length === 4 && !this.storageSettings.values.nativeMixinsAdded) {
-                this.storageSettings.values.nativeMixinsAdded = true;
-                const currentMixins = this.mixins;
+                    const objectDetector = sdk.systemManager.getDeviceById(this.pluginId, objectDetectorNativeId)?.id;
+                    const audioDetector = sdk.systemManager.getDeviceById(this.pluginId, audioDetectorNativeId)?.id;
+                    const motionDetector = sdk.systemManager.getDeviceById(this.pluginId, motionDetectorNativeId)?.id;
+                    const videoclipsDevice = sdk.systemManager.getDeviceById(this.pluginId, videoclipsNativeId)?.id;
 
-                const objectDetector = sdk.systemManager.getDeviceById(this.pluginId, objectDetectorNativeId)?.id;
-                const audioDetector = sdk.systemManager.getDeviceById(this.pluginId, audioDetectorNativeId)?.id;
-                const motionDetector = sdk.systemManager.getDeviceById(this.pluginId, motionDetectorNativeId)?.id;
-                const videoclipsDevice = sdk.systemManager.getDeviceById(this.pluginId, videoclipsNativeId)?.id;
+                    const mixinsToAdd = [
+                        ...(objectDetector ? [objectDetector] : []),
+                        ...(audioDetector ? [audioDetector] : []),
+                        ...(motionDetector ? [motionDetector] : []),
+                        ...(videoclipsDevice ? [videoclipsDevice] : []),
+                    ]
 
-                const mixinsToAdd = [
-                    ...(objectDetector ? [objectDetector] : []),
-                    ...(audioDetector ? [audioDetector] : []),
-                    ...(motionDetector ? [motionDetector] : []),
-                    ...(videoclipsDevice ? [videoclipsDevice] : []),
-                ]
+                    const newMixins = [
+                        ...currentMixins,
+                        ...mixinsToAdd,
+                    ];
+                    const plugins = await sdk.systemManager.getComponent('plugins');;
+                    await plugins.setMixins(this.id, newMixins);
 
-                const newMixins = [
-                    ...currentMixins,
-                    ...mixinsToAdd,
-                ];
-                const plugins = await sdk.systemManager.getComponent('plugins');;
-                await plugins.setMixins(this.id, newMixins);
+                    logger.log(`Added frigate mixins to camera ${this.storageSettings.values.cameraName}:`, mixinsToAdd);
 
-                logger.log(`Added frigate mixins to camera ${this.storageSettings.values.cameraName}:`, mixinsToAdd);
-            }
+                    await sdk.deviceManager.requestRestart();
+                }
 
-            if (this.mixins.length > 4) {
-                listener?.removeListener();
-            }
-        });
+                if (this.mixins.length > 4) {
+                    listener?.removeListener();
+                }
+            });
 
-        this.refreshDetectedStreamsSettings();
+            this.refreshDetectedStreamsSettings();
+        }
     }
 
     getSnapshotUrl(): string {
@@ -314,19 +316,11 @@ class FrigateBridgeCamera extends RtspSmartCamera {
     }
 
     async listenEvents(): Promise<Destroyable> {
-        const events = new EventEmitter();
-        const ret: Destroyable = {
-            on: function (eventName: string | symbol, listener: (...args: any[]) => void): void {
-                events.on(eventName, listener);
-            },
-            destroy: async () => {
-            },
-            emit: function (eventName: string | symbol, ...args: any[]): boolean {
-                return events.emit(eventName, ...args);
-            }
-        };
+        return null;
+    }
 
-        return ret;
+    async listenLoop(): Promise<void> {
+        return null;
     }
 
     createRtspMediaStreamOptions(url: string, index: number) {
@@ -338,42 +332,57 @@ class FrigateBridgeCamera extends RtspSmartCamera {
     async getConstructedVideoStreamOptions(): Promise<UrlMediaStreamOptions[]> {
         const streams: UrlMediaStreamOptions[] = [];
 
-        this.streamsData?.forEach(({ path, roles }, index) => {
-            this.refreshDetectedStreamsSettings();
-
-            const isHigh = roles.includes('record');
-
-            const presetKey = this.getDetectedStreamKey(index, 'preset');
-            const urlKey = this.getDetectedStreamKey(index, 'url');
-            const go2rtcStreamKey = this.getDetectedStreamKey(index, 'go2rtcStream');
-            const destinationsKey = this.getDetectedStreamKey(index, 'destinations');
-
-            const storedPreset = this.storage.getItem(presetKey);
-            const preset = this.isDetectedStreamPreset(storedPreset) ? storedPreset : this.presetInput;
-
-            let url: string;
-            if (preset === this.presetGo2Rtc) {
-                const streamName = this.storage.getItem(go2rtcStreamKey) || '';
-                url = this.getGo2RtcUrlForStreamName(streamName) || path;
-            } else {
-                url = this.storage.getItem(urlKey) || path;
+        if (this.isBirdseyeCamera) {
+            const url = this.getGo2RtcUrlForStreamName('birdseye');
+            if (url) {
+                streams.push({
+                    name: 'Birdseye',
+                    id: 'birdseye',
+                    container: 'rtsp',
+                    url,
+                    destinations: this.getDetectedStreamsSettingsChoices(),
+                });
             }
+        } else {
+            this.streamsData?.forEach(({ path, roles }, index) => {
+                this.refreshDetectedStreamsSettings();
 
-            const destinationsFromStorage = this.safeParseStringArray(this.storage.getItem(destinationsKey));
-            const filtered = destinationsFromStorage
-                ?.filter((d): d is MediaStreamDestination => this.isMediaStreamDestination(d));
-            const destinations: MediaStreamDestination[] = (filtered?.length ? filtered : undefined) ?? (isHigh
-                ? (['local', 'local-recorder', 'medium-resolution'] as MediaStreamDestination[])
-                : (['medium-resolution', 'remote', 'remote-recorder'] as MediaStreamDestination[]));
+                const isHigh = roles.includes('record');
 
-            streams.push({
-                name: `Stream ${index + 1}`,
-                id: `stream_${index + 1}`,
-                container: 'rtsp',
-                url,
-                destinations,
+                const presetKey = this.getDetectedStreamKey(index, 'preset');
+                const urlKey = this.getDetectedStreamKey(index, 'url');
+                const go2rtcStreamKey = this.getDetectedStreamKey(index, 'go2rtcStream');
+                const destinationsKey = this.getDetectedStreamKey(index, 'destinations');
+
+                const storedPreset = this.storage.getItem(presetKey) as StreamSource
+                const preset = this.isDetectedStreamPreset(storedPreset)
+                    ? storedPreset
+                    : this.provider.storageSettings.values.detectedStreamsDefaultPreset;
+
+                let url: string;
+                if (preset === StreamSource.Go2rtc) {
+                    const streamName = (this.storage.getItem(go2rtcStreamKey) || '');
+                    url = this.getGo2RtcUrlForStreamName(streamName) || path;
+                } else {
+                    url = this.storage.getItem(urlKey) || path;
+                }
+
+                const destinationsFromStorage = this.safeParseStringArray(this.storage.getItem(destinationsKey));
+                const filtered = destinationsFromStorage
+                    ?.filter((d): d is MediaStreamDestination => this.isMediaStreamDestination(d));
+                const destinations: MediaStreamDestination[] = (filtered?.length ? filtered : undefined) ?? (isHigh
+                    ? (['local', 'local-recorder', 'medium-resolution'] as MediaStreamDestination[])
+                    : (['medium-resolution', 'remote', 'remote-recorder'] as MediaStreamDestination[]));
+
+                streams.push({
+                    name: `Stream ${index + 1}`,
+                    id: `stream_${index + 1}`,
+                    container: 'rtsp',
+                    url,
+                    destinations,
+                });
             });
-        });
+        }
 
         this.videoStreamOptions = new Promise(r => r(streams));
 

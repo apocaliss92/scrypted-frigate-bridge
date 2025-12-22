@@ -12,6 +12,8 @@ export const audioDetectorNativeId = 'frigateAudioDetector';
 export const videoclipsNativeId = 'frigateVideoclips';
 export const birdseyeCameraNativeId = 'frigateBirdseyeCamera';
 export const importedCameraNativeIdPrefix = 'frigateCamera';
+export const birdseyeStreamName = 'birdseye';
+
 export const pluginId = name;
 
 export const FRIGATE_OBJECT_DETECTOR_INTERFACE = `${pluginId}:objectDetector`;
@@ -30,6 +32,11 @@ export const activeTopicWildcard = 'frigate/+/+/active';
 export const objectCountTopicWildcard = 'frigate/+/+';
 
 export const excludedAudioLabels = ['state', 'all'];
+
+export enum StreamSource {
+    Input = 'Input',
+    Go2rtc = 'go2rtc',
+}
 
 interface Snapshot {
     frame_time: number;
