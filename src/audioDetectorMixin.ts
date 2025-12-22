@@ -34,6 +34,13 @@ export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any
             type: 'number',
             defaultValue: 5,
         },
+        audioDetectionsState: {
+            title: 'Audio detections state',
+            description: 'Current state from MQTT frigate/audio_detections as an array of { label, timestamp, score }.',
+            json: true,
+            hide: true,
+            defaultValue: [],
+        },
     });
 
     logger: Console;
@@ -147,6 +154,39 @@ export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any
         }
     }
 
+    async onAudioDetectionsSnapshot(labelsMap: Record<string, any>) {
+        const { labels } = this.storageSettings.values;
+        const logger = this.getLogger();
+
+        if (!labelsMap || typeof labelsMap !== 'object')
+            return;
+
+        const now = Date.now();
+
+        const state = Object.entries(labelsMap)
+            .filter(([audioLabel]) => labels?.includes(audioLabel))
+            .map(([audioLabel, details]) => {
+                const score = (typeof details?.score === 'number') ? details.score : 0;
+                const ts = (typeof details?.last_detection === 'number')
+                    ? Math.trunc(details.last_detection * 1000)
+                    : now;
+
+                return {
+                    label: audioLabel,
+                    timestamp: ts,
+                    score,
+                };
+            })
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.timestamp - a.timestamp);
+
+        this.storageSettings.values.audioDetectionsState = state;
+
+        logger.info(`Audio detections snapshot stored, ${JSON.stringify({
+            count: state.length,
+        })}`);
+    }
+
     async getMixinSettings(): Promise<Setting[]> {
         const logger = this.getLogger();
         try {
@@ -173,6 +213,7 @@ export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any
     async release() {
         const logger = this.getLogger();
         logger.info('Releasing mixin');
+        this.storageSettings.values.audioDetectionsState = [];
     }
 
     getLogger() {

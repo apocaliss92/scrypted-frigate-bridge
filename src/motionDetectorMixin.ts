@@ -3,7 +3,7 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgeMotionDetector from "./motionDetector";
-import { guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
+import { initFrigateMixin } from "./utils";
 
 export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, MotionSensor {
     storageSettings = new StorageSettings(this, {

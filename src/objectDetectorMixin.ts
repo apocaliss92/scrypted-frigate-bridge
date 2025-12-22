@@ -7,6 +7,7 @@ import FrigateBridgeObjectDetector from "./objectDetector";
 import { convertFrigateBoxToScryptedBox, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, FrigateObjectDetection, guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
 import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { uniq } from "lodash";
+import { FrigateActiveTotalCounts, FrigateObjectCountsMap } from "./mqttSettingsTypes";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
     storageSettings = new StorageSettings(this, {
@@ -53,9 +54,69 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             json: true,
             hide: true
         },
+        activeObjects: {
+            title: 'Active objects',
+            description: 'Object counts from MQTT (frigate/<camera>/<object> and .../active).',
+            json: true,
+            defaultValue: {},
+            hide: true
+        },
+        zoneActiveObjectMap: {
+            title: 'Zone active object map',
+            description: 'Object counts per zone from MQTT (frigate/<zone>/<object> and .../active), routed to this camera using main.cameraZones.',
+            json: true,
+            defaultValue: {},
+            hide: true
+        },
     });
 
     logger: Console;
+
+    public onFrigateCameraObjectCountsUpdate(objectName: string, patch: Partial<FrigateActiveTotalCounts>) {
+        if (!objectName)
+            return;
+
+        const current = (this.storageSettings.values.activeObjects ?? {}) as FrigateObjectCountsMap;
+        const existing = current?.[objectName];
+        const nextCounts: FrigateActiveTotalCounts = {
+            active: existing?.active ?? 0,
+            total: existing?.total ?? 0,
+            ...patch,
+        };
+
+        const next: FrigateObjectCountsMap = {
+            ...current,
+            [objectName]: nextCounts,
+        };
+
+        this.storageSettings.values.activeObjects = next as any;
+    }
+
+    public onFrigateCameraZoneObjectCountsUpdate(zoneName: string, objectName: string, patch: Partial<FrigateActiveTotalCounts>) {
+        if (!zoneName || !objectName)
+            return;
+
+        const current = (this.storageSettings.values.zoneActiveObjectMap ?? {}) as Record<string, FrigateObjectCountsMap>;
+        const currentZone = current?.[zoneName] ?? {};
+        const existing = currentZone?.[objectName];
+        const nextCounts: FrigateActiveTotalCounts = {
+            active: existing?.active ?? 0,
+            total: existing?.total ?? 0,
+            ...patch,
+        };
+
+        const nextZone: FrigateObjectCountsMap = {
+            ...currentZone,
+            [objectName]: nextCounts,
+        };
+
+        const next = {
+            ...current,
+            [zoneName]: nextZone,
+        };
+
+        this.storageSettings.values.zoneActiveObjectMap = next as any;
+    }
 
     private readonly seenDetectionLogKeys = new Set<string>();
     private seenDetectionLogKeysLastCleanMs = Date.now();
@@ -303,7 +364,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             logger.log(`Detection event forwarded, ${JSON.stringify({
                 eventLabel,
                 subLabel,
-                event
             })}`);
         }
         logger.info(JSON.stringify(event));

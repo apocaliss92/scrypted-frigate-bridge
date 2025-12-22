@@ -1,25 +1,28 @@
 import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
+import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
+import { parse as parseYaml } from 'yaml';
 import FrigateBridgeAudioDetector from "./audioDetector";
 import FrigateBridgeBirdseyeCamera from "./birdseyeCamera";
 import FrigateBridgeCamera from "./camera";
 import FrigateBridgeClassifier from "./classsifier";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { animalClassifierNativeId, audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, vehicleClassifierNativeId, videoclipsNativeId } from "./utils";
+import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
-import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
+    'baseGo2rtcUrl' |
     'objectLabels' |
     'audioLabels' |
     'cameras' |
     'faces' |
+    'go2rtcStreams' |
     'cameraZones' |
     'cameraZonesDetails' |
     'exportCameraDevice' |
@@ -43,6 +46,12 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             title: 'Frigate server API URL',
             description: 'URL to the Frigate server. Example: http://192.168.1.100:5000/api',
             type: 'string',
+        },
+        baseGo2rtcUrl: {
+            title: 'Base go2rtc RTSP URL',
+            description: 'Base RTSP URL for go2rtc streams (e.g. rtsp://192.168.1.100:8554). Default is derived from the Frigate server URL host.',
+            type: 'string',
+            placeholder: 'rtsp://<frigate-host>:8554',
         },
         objectLabels: {
             title: 'Available object labels',
@@ -71,6 +80,10 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             readonly: true,
             multiple: true,
             choices: [],
+        },
+        go2rtcStreams: {
+            json: true,
+            hide: true,
         },
         cameraZones: {
             json: true,
@@ -120,6 +133,9 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     camerasMap: Record<string, FrigateBridgeCamera> = {};
     logger: Console;
     config: any;
+    lastConfigFetch: number;
+    configRawJson: any;
+    lastConfigRawJsonFetch: number;
 
     constructor(nativeId: string) {
         super(nativeId);
@@ -178,12 +194,50 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     }
 
     async getConfiguration() {
+        const logger = this.getLogger();
+        const now = Date.now();
+
+        if (this.config && (now < this.lastConfigFetch + 1000 * 60 * 5)) {
+            return this.config;
+        }
+
+        logger.log('Fetching Frigate configuration');
+
         const configsResponse = await baseFrigateApi({
             apiUrl: this.storageSettings.values.serverUrl,
             service: 'config',
         });
 
-        return configsResponse.data;
+        this.config = configsResponse.data;
+        this.lastConfigFetch = Date.now();
+
+        return this.config;
+    }
+
+    async getConfigurationRawJson(): Promise<any> {
+        const logger = this.getLogger();
+        const now = Date.now();
+
+        if (this.configRawJson && (now < (this.lastConfigRawJsonFetch ?? 0) + 1000 * 60 * 5)) {
+            return this.configRawJson;
+        }
+
+        const res = await baseFrigateApi<string>({
+            apiUrl: this.storageSettings.values.serverUrl,
+            service: 'config/raw',
+        });
+
+        const raw = res?.data;
+
+        try {
+            this.configRawJson = parseYaml(raw);
+        } catch (e) {
+            logger.debug('Error parsing Frigate raw config YAML', e);
+            this.configRawJson = undefined;
+        }
+
+        this.lastConfigRawJsonFetch = Date.now();
+        return this.configRawJson;
     }
 
     async initData() {
@@ -193,6 +247,17 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             if (!this.storageSettings.values.serverUrl) {
                 return;
             }
+
+            // Auto-populate base go2rtc URL if not set.
+            try {
+                if (!this.storageSettings.values.baseGo2rtcUrl) {
+                    const host = new URL(this.storageSettings.values.serverUrl).hostname;
+                    this.storageSettings.values.baseGo2rtcUrl = `rtsp://${host}:8554`;
+                    this.storageSettings.settings.baseGo2rtcUrl.defaultValue = `rtsp://${host}:8554`;
+                }
+            } catch {
+            }
+
             const res = await baseFrigateApi({
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'labels',
@@ -209,16 +274,27 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             this.storageSettings.values.audioLabels = audioLabels;
             this.storageSettings.values.objectLabels = objectLabels;
 
-            this.config = await this.getConfiguration();
+            // Cache go2rtc stream list (used by imported cameras stream presets).
+            try {
+                const go2rtcRes = await baseFrigateApi({
+                    apiUrl: this.storageSettings.values.serverUrl,
+                    service: 'go2rtc/streams',
+                });
+                this.storageSettings.values.go2rtcStreams = JSON.stringify(go2rtcRes.data);
+            } catch (e) {
+                logger.debug('Error fetching go2rtc streams', e);
+            }
 
-            const cameras = Object.keys((this.config ?? {})?.cameras);
+            const config = await this.getConfiguration();
+
+            const cameras = Object.keys((config ?? {})?.cameras);
             logger.log(`Cameras found: ${cameras}`);
             this.storageSettings.values.cameras = cameras;
 
             const cameraZones = {};
             const cameraZonesDetails = {};
             for (const cameraName of cameras) {
-                const zones = this.config?.cameras?.[cameraName]?.zones ?? {};
+                const zones = config?.cameras?.[cameraName]?.zones ?? {};
                 cameraZones[cameraName] = Object.keys(zones) ?? [];
                 // Preserve the full Frigate zone config (coordinates, filters, colors, etc.).
                 cameraZonesDetails[cameraName] = zones;
@@ -570,19 +646,13 @@ ${cameraName}:
         if (nativeId === birdseyeCameraNativeId)
             return this.birdseyeCamera ||= new FrigateBridgeBirdseyeCamera(birdseyeCameraNativeId, this);
 
-        if (nativeId === animalClassifierNativeId)
-            return this.animalClassifier ||= new FrigateBridgeClassifier(animalClassifierNativeId, this, 'Animal');
-
-        if (nativeId === vehicleClassifierNativeId)
-            return this.vehicleClassifier ||= new FrigateBridgeClassifier(vehicleClassifierNativeId, this, 'Vehicle');
-
         if (nativeId.startsWith(importedCameraNativeIdPrefix)) {
             const found = this.camerasMap[nativeId];
 
             if (found) {
                 return found;
             } else {
-                const [_, cameraName] = nativeId.split('_');
+                const [_, cameraName] = nativeId.split('__');
                 const newCamera = new FrigateBridgeCamera(nativeId, this, cameraName);
                 this.camerasMap[nativeId] = newCamera;
                 return newCamera;
@@ -602,6 +672,7 @@ ${cameraName}:
         try {
             this.storageSettings.settings.mqttEnabled.hide = true;
             applySettingsShow(this.storageSettings);
+            this.storageSettings.settings.devNotifier.hide = true;
             const settings = await this.storageSettings.getSettings();
             return settings;
         } catch (e) {
@@ -620,11 +691,20 @@ ${cameraName}:
                 type: 'string',
                 choices: cameraNames
             },
+            {
+                key: 'streamsPreset',
+                title: 'Streams preset',
+                description: 'Default preset used for detected streams. Input will use the urls configured on Frigate, go2Rtc will use the go2Rtc exposed streams.',
+                type: 'string',
+                choices: ['Input', 'go2Rtc'],
+                value: 'Input',
+            },
         ]
     }
 
     async createDevice(settings: DeviceCreatorSettings, nativeId?: string): Promise<string> {
         const cameraName = settings.cameraName as string;
+        const streamsPreset = (settings.streamsPreset as string) || 'Input';
 
         if (!cameraName) {
             this.console.log('Camera name is required');
@@ -632,11 +712,12 @@ ${cameraName}:
         }
 
         settings.newCamera = cameraName;
-        const cameraNativeId = `${importedCameraNativeIdPrefix}_${cameraName}`;
+        const cameraNativeId = `${importedCameraNativeIdPrefix}__${cameraName}`;
         await super.createDevice(settings, cameraNativeId);
 
         const device = await this.getDevice(cameraNativeId) as FrigateBridgeCamera;
         device.storageSettings.values.cameraName = cameraName;
+        device.storageSettings.values.detectedStreamsDefaultPreset = streamsPreset;
 
         return cameraNativeId;
     }

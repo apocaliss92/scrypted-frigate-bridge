@@ -7,12 +7,9 @@ import FrigateBridgePlugin from './main';
 import { SettingsMixinDeviceBase } from '@scrypted/sdk/settings-mixin';
 
 export const objectDetectorNativeId = 'frigateObjectDetector';
-export const animalClassifierNativeId = 'frigateAnimalClassifier';
-export const vehicleClassifierNativeId = 'frigateVehicleClassifier';
 export const motionDetectorNativeId = 'frigateMotionDetector';
 export const audioDetectorNativeId = 'frigateAudioDetector';
 export const videoclipsNativeId = 'frigateVideoclips';
-export const snapshotNativeId = 'frigateSnapshot';
 export const birdseyeCameraNativeId = 'frigateBirdseyeCamera';
 export const importedCameraNativeIdPrefix = 'frigateCamera';
 export const pluginId = name;
@@ -28,6 +25,9 @@ export type FrigateObjectDetection = ObjectsDetected & { frigateEvent: ObjectsDe
 export const motionTopic = `frigate/+/motion`;
 export const eventsTopic = `frigate/events`;
 export const audioTopic = `frigate/+/audio/+`;
+export const audioDetectionsTopic = 'frigate/audio_detections';
+export const activeTopicWildcard = 'frigate/+/+/active';
+export const objectCountTopicWildcard = 'frigate/+/+';
 
 export const excludedAudioLabels = ['state', 'all'];
 
@@ -403,7 +403,7 @@ export const initFrigateMixin = async (props: {
     const { mixin, storageSettings, plugin, logger } = props;
     storageSettings.settings.cameraName.choices = plugin.storageSettings.values.cameras;
     if (mixin.pluginId === pluginId) {
-        const [_, cameraName] = mixin.nativeId.split('_');
+        const [_, cameraName] = mixin.nativeId.split('__');
         storageSettings.values.cameraName = cameraName;
         storageSettings.settings.cameraName.readonly = true;
     }
@@ -444,4 +444,56 @@ export const ensureMixinsOrder = (props: {
             thisDevice.setMixins(currentMixins);
         }, 1000);
     }
+}
+
+export const parseActivePayload = (payload: any): boolean | undefined => {
+    const raw = (typeof payload === 'string' ? payload : payload?.toString?.())?.trim();
+    if (!raw)
+        return undefined;
+
+    // Common MQTT representations.
+    const lower = raw.toLowerCase();
+    if (['1', 'true', 'on', 'yes', 'open', 'active'].includes(lower))
+        return true;
+    if (['0', 'false', 'off', 'no', 'closed', 'inactive'].includes(lower))
+        return false;
+
+    // JSON payloads (best-effort).
+    try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === 'boolean')
+            return parsed;
+        if (typeof parsed?.active === 'boolean')
+            return parsed.active;
+        if (typeof parsed?.state === 'boolean')
+            return parsed.state;
+        if (typeof parsed?.value === 'boolean')
+            return parsed.value;
+    } catch {
+    }
+
+    return undefined;
+}
+
+export const parseMqttCountPayload = (payload: any): number | undefined => {
+    const raw = (typeof payload === 'string' ? payload : payload?.toString?.())?.trim();
+    if (!raw)
+        return undefined;
+
+    // Many Frigate count topics publish plain integers.
+    const asNumber = Number(raw);
+    if (Number.isFinite(asNumber))
+        return Math.trunc(asNumber);
+
+    // Best-effort JSON.
+    try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === 'number' && Number.isFinite(parsed))
+            return Math.trunc(parsed);
+        if (typeof parsed?.value === 'number' && Number.isFinite(parsed.value))
+            return Math.trunc(parsed.value);
+    } catch {
+    }
+
+    return undefined;
 }

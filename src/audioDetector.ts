@@ -2,7 +2,7 @@ import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterfac
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
-import { audioTopic, excludedAudioLabels, FRIGATE_AUDIO_DETECTOR_INTERFACE, isAudioLevelValue } from "./utils";
+import { audioDetectionsTopic, audioTopic, excludedAudioLabels, FRIGATE_AUDIO_DETECTOR_INTERFACE, isAudioLevelValue } from "./utils";
 import { FrigateBridgeAudioDetectorMixin } from "./audioDetectorMixin";
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
@@ -50,6 +50,34 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
         const logger = this.getLogger();
 
         this.mqttCb = async (messageTopic, message) => {
+            if (messageTopic === audioDetectionsTopic) {
+                try {
+                    const raw = (typeof message === 'string' ? message : String(message)) ?? '';
+                    const parsed = JSON.parse(raw) as Record<string, Record<string, any>>;
+                    if (!parsed || typeof parsed !== 'object')
+                        return;
+
+                    for (const [cameraName, labelsMap] of Object.entries(parsed)) {
+                        if (!labelsMap || typeof labelsMap !== 'object')
+                            continue;
+
+                        const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                            const { cameraName: mixinCameraName } = mixin.storageSettings.values;
+                            return mixinCameraName === cameraName;
+                        });
+
+                        if (!foundMixin)
+                            continue;
+
+                        await foundMixin.onAudioDetectionsSnapshot(labelsMap);
+                    }
+                } catch (e) {
+                    logger.debug('Error parsing frigate/audio_detections payload', e);
+                }
+
+                return;
+            }
+
             const [_, camera, eventType, eventSubType] = messageTopic.split('/');
 
             if (eventType === 'audio' && !excludedAudioLabels.includes(eventSubType)) {
@@ -76,7 +104,7 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
             }
         };
 
-        await mqttClient?.subscribe([audioTopic], this.mqttCb);
+        await mqttClient?.subscribe([audioTopic, audioDetectionsTopic], this.mqttCb);
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {

@@ -4,7 +4,8 @@ import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypt
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
-import { eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent } from "./utils";
+import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, objectCountTopicWildcard, parseMqttCountPayload } from "./utils";
+import { FrigateActiveTotalCounts } from "./mqttSettingsTypes";
 
 export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -54,6 +55,49 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();
 
+        const updateCounts = (current: FrigateActiveTotalCounts | undefined, patch: Partial<FrigateActiveTotalCounts>): FrigateActiveTotalCounts => {
+            return {
+                active: current?.active ?? 0,
+                total: current?.total ?? 0,
+                ...patch,
+            };
+        }
+
+        const getCameraZonesMap = (): Record<string, string[]> => {
+            const raw: any = this.plugin?.storageSettings?.values?.cameraZones;
+
+            if (!raw)
+                return {};
+
+            if (typeof raw === 'string') {
+                try {
+                    return JSON.parse(raw);
+                } catch {
+                    return {};
+                }
+            }
+
+            return raw as Record<string, string[]>;
+        };
+
+        const getCameraMixinsForZone = (zoneName: string): FrigateBridgeObjectDetectorMixin[] => {
+            if (!zoneName)
+                return [];
+
+            const cameraZones = getCameraZonesMap();
+            const cameraNames = Object.entries(cameraZones)
+                .filter(([_, zones]) => Array.isArray(zones) && zones.includes(zoneName))
+                .map(([cameraName]) => cameraName);
+
+            if (!cameraNames.length)
+                return [];
+
+            const mixins = Object.values(this.currentMixinsMap)
+                .filter(mixin => cameraNames.includes(mixin.storageSettings.values.cameraName));
+
+            return mixins;
+        };
+
         this.mqttCb = async (messageTopic, message) => {
             if (messageTopic === eventsTopic) {
                 const obj: FrigateEvent = JSON.parse(message.toString());
@@ -90,9 +134,109 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                     await foundMixin.onFrigateDetectionEvent(obj);
                 }
             }
+
+            // frigate/<zone_name>/<object_name>/active
+            // frigate/<camera_name>/<object_name>/active
+            const matchActive = /^frigate\/([^/]+)\/([^/]+)\/active$/.exec(messageTopic);
+            if (matchActive) {
+                const name = matchActive[1];
+                const objectName = matchActive[2];
+                const activeCount = parseMqttCountPayload(message);
+                if (activeCount === undefined) {
+                    logger.debug(`Active topic payload ignored (unparsed): ${JSON.stringify({
+                        messageTopic,
+                        payload: message?.toString?.(),
+                    })}`);
+                    return;
+                }
+
+                // If the first segment matches a configured camera name, treat it as a camera topic.
+                // Otherwise, treat it as a zone topic.
+                const cameraMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                    const { cameraName } = mixin.storageSettings.values;
+                    return cameraName === name;
+                });
+
+                if (cameraMixin) {
+                    cameraMixin.onFrigateCameraObjectCountsUpdate(objectName, { active: activeCount });
+                    logger.log(`Camera object active updated: ${JSON.stringify({
+                        cameraName: name,
+                        objectName,
+                        active: activeCount,
+                    })}`);
+                } else {
+                    const zoneName = name;
+                    const zoneMixins = getCameraMixinsForZone(zoneName);
+
+                    if (!zoneMixins.length) {
+                        logger.debug(`Zone active update ignored (no camera found for zone): ${JSON.stringify({
+                            zoneName,
+                            objectName,
+                            active: activeCount,
+                        })}`);
+                        return;
+                    }
+
+                    for (const mixin of zoneMixins) {
+                        mixin.onFrigateCameraZoneObjectCountsUpdate(zoneName, objectName, { active: activeCount });
+                    }
+
+                    logger.debug(`Zone object active updated (routed to cameras): ${JSON.stringify({
+                        zoneName,
+                        objectName,
+                        active: activeCount,
+                        cameras: zoneMixins.map(m => m.storageSettings.values.cameraName),
+                    })}`);
+                }
+            }
+
+            // frigate/<zone_name>/<object_name> OR frigate/<camera_name>/<object_name>
+            const matchTotal = /^frigate\/([^/]+)\/([^/]+)$/.exec(messageTopic);
+            if (matchTotal) {
+                const name = matchTotal[1];
+                const objectName = matchTotal[2];
+
+                // Avoid catching global topics like frigate/events.
+                if (name === 'events')
+                    return;
+
+                const totalCount = parseMqttCountPayload(message);
+                if (totalCount === undefined)
+                    return;
+
+                const cameraMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                    const { cameraName } = mixin.storageSettings.values;
+                    return cameraName === name;
+                });
+
+                if (cameraMixin) {
+                    cameraMixin.onFrigateCameraObjectCountsUpdate(objectName, { total: totalCount });
+                    logger.debug(`Camera object total updated: ${JSON.stringify({
+                        cameraName: name,
+                        objectName,
+                        total: totalCount,
+                    })}`);
+                } else {
+                    const zoneName = name;
+                    const zoneMixins = getCameraMixinsForZone(zoneName);
+                    if (!zoneMixins.length)
+                        return;
+
+                    for (const mixin of zoneMixins) {
+                        mixin.onFrigateCameraZoneObjectCountsUpdate(zoneName, objectName, { total: totalCount });
+                    }
+
+                    logger.debug(`Zone object total updated (routed to cameras): ${JSON.stringify({
+                        zoneName,
+                        objectName,
+                        total: totalCount,
+                        cameras: zoneMixins.map(m => m.storageSettings.values.cameraName),
+                    })}`);
+                }
+            }
         };
 
-        await mqttClient?.subscribe([eventsTopic], this.mqttCb);
+        await mqttClient?.subscribe([eventsTopic, activeTopicWildcard, objectCountTopicWildcard], this.mqttCb);
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
