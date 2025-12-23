@@ -7,7 +7,6 @@ import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } fr
 import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeAudioDetector from "./audioDetector";
 import FrigateBridgeCamera from "./camera";
-import FrigateBridgeClassifier from "./classsifier";
 import type { FrigateConfig, FrigateRawConfig } from "./frigateConfigTypes";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
@@ -117,8 +116,6 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     motionDetectorDevice: FrigateBridgeMotionDetector;
     audioDetectorDevice: FrigateBridgeAudioDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
-    animalClassifier: FrigateBridgeClassifier;
-    vehicleClassifier: FrigateBridgeClassifier;
     camerasMap: Record<string, FrigateBridgeCamera> = {};
     logger: Console;
     config: FrigateConfig | undefined;
