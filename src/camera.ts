@@ -1,34 +1,95 @@
-import sdk, { MediaObject, MediaStreamDestination, PictureOptions, Setting, SettingValue } from "@scrypted/sdk";
-import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import sdk, { MediaObject, PictureOptions, Setting, SettingValue } from "@scrypted/sdk";
+import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";
-import { StreamSource, audioDetectorNativeId, birdseyeStreamName, motionDetectorNativeId, objectDetectorNativeId, videoclipsNativeId } from "./utils";
+import { audioDetectorNativeId, baseFrigateApi, birdseyeStreamName, convertSettingsToStorageSettings, ffprobeLocalJson, mapLimit, motionDetectorNativeId, objectDetectorNativeId, parseFraction, toArray, videoclipsNativeId } from "./utils";
+
+type FfprobeSummary = {
+    url: string;
+    protocol?: string;
+    format?: {
+        format_name?: string;
+        format_long_name?: string;
+        duration?: number;
+        bit_rate?: number;
+    };
+    video?: {
+        codec?: string;
+        width?: number;
+        height?: number;
+        fps?: number;
+        pix_fmt?: string;
+        profile?: string;
+        level?: number;
+    };
+    audio?: {
+        codec?: string;
+        channels?: number;
+        sample_rate?: number;
+        bit_rate?: number;
+    };
+};
+
+export type ConfiguredStreamProbe = {
+    cameraName?: string;
+    streamName: string;
+    streamId: string;
+    source: 'go2rtc' | 'input';
+    url: string;
+    roles?: string[];
+    probedAt: number;
+    ffprobe?: FfprobeSummary;
+    error?: string;
+};
+
+type CameraSettingKey =
+    | 'logLevel'
+    | 'cameraName'
+    | 'rerunFfprobe'
+    | 'probedStreams'
+    | 'nativeMixinsAdded';
 
 class FrigateBridgeCamera extends RtspSmartCamera {
-    storageSettings = new StorageSettings(this, {
+    initStorage: StorageSettingsDict<CameraSettingKey> = {
         logLevel: {
             ...logLevelSetting,
         },
         cameraName: {
             title: 'Frigate camera name',
             type: 'string',
-            readonly: true
+            readonly: true,
+            hide: true,
         },
-        detectedStreamsDefaultPreset: {
-            title: 'Detected streams default preset',
-            description: 'Default preset applied to newly detected streams when no per-stream preset is configured.',
-            type: 'string',
+        rerunFfprobe: {
+            title: 'Re-run ffprobe',
+            description: 'Re-probe the configured streams via Frigate /api/ffprobe and refresh detected stream URLs/metadata.',
+            type: 'button',
+            immediate: true,
+            hide: true,
+            onPut: async () => {
+                await this.discoverBestConfiguredStreamUrlsAndProbe({
+                    force: true,
+                    concurrency: 2,
+                });
+
+                // Ensure next stream option fetch recomputes.
+                this.videoStreamOptions = undefined;
+            },
+        },
+        probedStreams: {
+            json: true,
             hide: true,
         },
         nativeMixinsAdded: {
             type: 'boolean',
             hide: true
         },
-    });
+    };
+    storageSettings = new StorageSettings(this, this.initStorage);
+
     videoStreamOptions: Promise<UrlMediaStreamOptions[]>;
-    streamsData: { path: string, roles: string[] }[] = [];
     logger: Console;
     isBirdseyeCamera = false;
 
@@ -45,20 +106,12 @@ class FrigateBridgeCamera extends RtspSmartCamera {
         this.init().catch(logger.log);
     }
 
-    private readonly detectedStreamsGroup = 'Detected streams';
-
-    private readonly detectedStreamPresetChoices = Object.values(StreamSource);
-
-    private isDetectedStreamPreset(value: StreamSource) {
-        return this.detectedStreamPresetChoices.includes(value);
+    private getDetectedStreamKey(streamId: string) {
+        return `detectedStream:${streamId}:url`;
     }
 
-    private getDetectedStreamKey(index: number, field: 'preset' | 'url' | 'go2rtcStream' | 'destinations' | 'roles') {
-        return `detectedStream:${index}:${field}`;
-    }
-
-    private getGo2RtcStreamNames(): string[] {
-        const raw = this.provider?.storageSettings?.values?.go2rtcStreams as any;
+    private getStoredProbedStreams(): ConfiguredStreamProbe[] {
+        const raw = this.storage.getItem('probedStreams') as any;
         const data = (typeof raw === 'string')
             ? (() => {
                 try {
@@ -69,16 +122,13 @@ class FrigateBridgeCamera extends RtspSmartCamera {
             })()
             : raw;
 
-        if (!data)
+        if (!Array.isArray(data))
             return [];
+        return data as ConfiguredStreamProbe[];
+    }
 
-        const streamsObj = (data?.streams && typeof data.streams === 'object') ? data.streams : data;
-        if (!streamsObj || typeof streamsObj !== 'object')
-            return [];
-
-        return Object.keys(streamsObj)
-            .filter(name => name !== 'birdseye')
-            .sort();
+    private storeProbedStreams(streams: ConfiguredStreamProbe[]) {
+        this.storage.setItem('probedStreams', JSON.stringify(streams));
     }
 
     private getGo2RtcUrlForStreamName(streamName: string): string | undefined {
@@ -96,130 +146,298 @@ class FrigateBridgeCamera extends RtspSmartCamera {
         }
     }
 
-    private safeParseStringArray(raw: string | undefined | null): string[] | undefined {
-        if (!raw)
-            return undefined;
+    private getBaseGo2rtcUrl(): string | undefined {
+        // Prefer explicit user setting.
+        const explicit = this.provider?.storageSettings?.values?.baseGo2rtcUrl;
+        if (explicit)
+            return String(explicit);
 
+        // Fall back to derived default value (set in provider initData).
+        const derived = this.provider?.storageSettings?.settings?.baseGo2rtcUrl?.defaultValue as string | undefined;
+        if (derived)
+            return derived;
+
+        // Last resort: derive from Frigate api url hostname.
         try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed))
-                return parsed.map(v => String(v));
+            const host = new URL(this.provider.storageSettings.values.serverUrl).hostname;
+            return `rtsp://${host}:8554`;
         } catch {
+            return undefined;
         }
-
-        // Fallback: comma-separated.
-        const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
-        return parts.length ? parts : undefined;
     }
 
-    private getDetectedStreamsSettingsChoices(): MediaStreamDestination[] {
-        return [
-            'local',
-            'remote',
-            'medium-resolution',
-            'low-resolution',
-            'local-recorder',
-            'remote-recorder',
-        ];
-    }
+    private async ffprobeViaFrigate(url: string): Promise<FfprobeSummary> {
+        const res = await baseFrigateApi<any>({
+            apiUrl: this.provider.storageSettings.values.serverUrl,
+            service: 'ffprobe',
+            params: {
+                paths: url,
+            },
+        });
 
-    private isMediaStreamDestination(value: string): value is MediaStreamDestination {
-        return this.getDetectedStreamsSettingsChoices().includes(value as MediaStreamDestination);
-    }
-
-    private refreshDetectedStreamsSettings() {
-        if (!this.isBirdseyeCamera) {
-            return;
-        }
-
-        const destinationChoices = this.getDetectedStreamsSettingsChoices();
-        const streams = this.streamsData ?? [];
-        const go2rtcStreamNames = this.getGo2RtcStreamNames();
-
-        const { detectedStreamsDefaultPreset } = this.storageSettings.values;
-        const defaultPreset = this.isDetectedStreamPreset(detectedStreamsDefaultPreset)
-            ? detectedStreamsDefaultPreset
-            : this.provider.storageSettings.values.detectedStreamsDefaultPreset;
-
-        for (let index = 0; index < streams.length; index++) {
-            const { path, roles } = streams[index];
-            const isHigh = roles?.includes('record');
-            const defaultDestinations = isHigh
-                ? (['local', 'local-recorder', 'medium-resolution'] as MediaStreamDestination[])
-                : (['medium-resolution', 'remote', 'remote-recorder'] as MediaStreamDestination[]);
-
-            const subgroup = `Stream ${index + 1}`;
-
-            const presetKey = this.getDetectedStreamKey(index, 'preset');
-            const urlKey = this.getDetectedStreamKey(index, 'url');
-            const go2rtcStreamKey = this.getDetectedStreamKey(index, 'go2rtcStream');
-            const destinationsKey = this.getDetectedStreamKey(index, 'destinations');
-            const rolesKey = this.getDetectedStreamKey(index, 'roles');
-
-            const storedPreset = this.storage.getItem(presetKey) as StreamSource;
-            const preset = (this.isDetectedStreamPreset(storedPreset) ? storedPreset : defaultPreset);
-            const isInput = preset === StreamSource.Input;
-
-            this.storageSettings.settings[presetKey] = {
-                title: 'Streams source preset',
-                description: 'Source used for the streams. Input will use the urls configured on Frigate, go2Rtc will use the go2Rtc exposed streams.',
-                type: 'string',
-                group: this.detectedStreamsGroup,
-                subgroup,
-                immediate: true,
-                combobox: true,
-                choices: [...this.detectedStreamPresetChoices],
-                defaultValue: defaultPreset,
-                onPut: async () => {
-                    this.refreshDetectedStreamsSettings();
+        let data = res?.data;
+        // If Frigate reports a failure, attempt local ffprobe as a fallback.
+        if (Array.isArray(data)) {
+            const first = data[0] as any;
+            const returnCode = Number(first?.return_code);
+            if (Number.isFinite(returnCode) && returnCode === 1) {
+                try {
+                    data = await ffprobeLocalJson(url);
+                } catch (e) {
+                    this.console.log(JSON.stringify(e));
+                    const message = (e instanceof Error) ? e.message : String(e);
+                    const frigateStderr = (typeof first?.stderr === 'string' && first.stderr.trim()) ? first.stderr.trim() : undefined;
+                    throw new Error(`Frigate ffprobe failed (return_code=1) for ${url}${frigateStderr ? `: ${frigateStderr}` : ''}. Local ffprobe fallback failed: ${message}`);
                 }
-            };
+            }
+        }
+        const parsed = (() => {
+            if (!data)
+                return {};
 
-            this.storageSettings.settings[urlKey] = {
+            // Common Frigate response: [{ return_code, stdout: { streams, format, ... } }]
+            if (Array.isArray(data)) {
+                const first = data[0] as any;
+                if (first?.stdout && (first.stdout.streams || first.stdout.format))
+                    return first.stdout;
+                if (first?.streams || first?.format)
+                    return first;
+            }
+
+            // Some versions return { stdout: { streams, format } }
+            if (data.stdout && (data.stdout.streams || data.stdout.format))
+                return data.stdout;
+
+            // Or directly { streams, format }
+            if (data.streams || data.format)
+                return data;
+
+            // Or wrapped in { result: { ... } }
+            if (data.result && (data.result.streams || data.result.format || data.result.stdout))
+                return data.result.stdout ?? data.result;
+
+            // Or keyed by url: { [url]: { stdout: { ... } } }
+            if (typeof data === 'object' && data[url]) {
+                const entry = (data as any)[url];
+                if (entry?.stdout && (entry.stdout.streams || entry.stdout.format))
+                    return entry.stdout;
+                if (entry?.streams || entry?.format)
+                    return entry;
+                if (entry?.result)
+                    return entry.result.stdout ?? entry.result;
+            }
+
+            // Fall back: first object value.
+            if (typeof data === 'object') {
+                const first = Object.values(data)[0] as any;
+                if (first?.stdout && (first.stdout.streams || first.stdout.format))
+                    return first.stdout;
+                if (first?.streams || first?.format)
+                    return first;
+                if (first?.result)
+                    return first.result.stdout ?? first.result;
+            }
+
+            return {};
+        })() as {
+            streams?: Array<Record<string, unknown>>;
+            format?: Record<string, unknown>;
+        };
+
+        const streams = toArray<Record<string, unknown>>(parsed.streams);
+        // Some Frigate/ffprobe outputs omit codec_type; infer from width/height.
+        const video = streams.find(s => s.codec_type === 'video' || (typeof s.width === 'number' && typeof s.height === 'number'));
+        const audio = streams.find(s => s.codec_type === 'audio' || (
+            !('width' in s) && !('height' in s)
+        ));
+
+        const duration = Number.parseFloat(String(parsed.format?.duration ?? ''));
+        const bitRate = Number.parseInt(String(parsed.format?.bit_rate ?? ''), 10);
+
+        const videoWidth = Number.parseInt(String(video?.width ?? ''), 10);
+        const videoHeight = Number.parseInt(String(video?.height ?? ''), 10);
+        const fps = parseFraction(video?.avg_frame_rate) ?? parseFraction(video?.r_frame_rate);
+
+        const audioSampleRate = Number.parseInt(String(audio?.sample_rate ?? ''), 10);
+        const audioChannels = Number.parseInt(String(audio?.channels ?? ''), 10);
+        const audioBitRate = Number.parseInt(String(audio?.bit_rate ?? ''), 10);
+
+        const protocol = (() => {
+            try {
+                const p = new URL(url).protocol;
+                return p ? p.replace(/:$/, '') : undefined;
+            } catch {
+                const m = String(url ?? '').match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+                return m?.[1];
+            }
+        })();
+
+        return {
+            url,
+            protocol,
+            format: {
+                format_name: typeof parsed.format?.format_name === 'string' ? parsed.format.format_name : undefined,
+                format_long_name: typeof (parsed.format as any)?.format_long_name === 'string' ? String((parsed.format as any).format_long_name) : undefined,
+                duration: Number.isFinite(duration) ? duration : undefined,
+                bit_rate: Number.isFinite(bitRate) ? bitRate : undefined,
+            },
+            video: {
+                codec: (typeof video?.codec_name === 'string')
+                    ? (video.codec_name as string)
+                    : (typeof (video as any)?.codec_long_name === 'string' ? String((video as any).codec_long_name) : undefined),
+                width: Number.isFinite(videoWidth) ? videoWidth : undefined,
+                height: Number.isFinite(videoHeight) ? videoHeight : undefined,
+                fps: Number.isFinite(fps as number) ? (fps as number) : undefined,
+                pix_fmt: typeof video?.pix_fmt === 'string' ? (video.pix_fmt as string) : undefined,
+                profile: typeof video?.profile === 'string' ? (video.profile as string) : undefined,
+                level: typeof video?.level === 'number' ? (video.level as number) : undefined,
+            },
+            audio: {
+                codec: (typeof audio?.codec_name === 'string')
+                    ? (audio.codec_name as string)
+                    : (typeof (audio as any)?.codec_long_name === 'string' ? String((audio as any).codec_long_name) : undefined),
+                channels: Number.isFinite(audioChannels) ? audioChannels : undefined,
+                sample_rate: Number.isFinite(audioSampleRate) ? audioSampleRate : undefined,
+                bit_rate: Number.isFinite(audioBitRate) ? audioBitRate : undefined,
+            },
+        };
+    }
+
+    async discoverBestConfiguredStreamUrlsAndProbe(options?: {
+        force?: boolean;
+        concurrency?: number;
+    }): Promise<ConfiguredStreamProbe[]> {
+        const logger = this.getLogger();
+        const now = Date.now();
+
+        const raw = await this.provider.getConfigurationRawJson();
+        const config = await this.provider.getConfiguration(options?.force);
+
+        const baseGo2rtcUrl = this.getBaseGo2rtcUrl()?.replace(/\/+$/, '');
+        const go2rtcStreams = raw?.go2rtc?.streams ?? config?.go2rtc?.streams ?? {};
+        const go2rtcStreamNames = Object.keys(go2rtcStreams ?? {});
+
+        const cameraConfig = (raw?.cameras?.[this.cameraName] ?? config?.cameras?.[this.cameraName]);
+        const configuredStreams: ConfiguredStreamProbe[] = [];
+
+        logger.info(JSON.stringify({
+            cameraConfig,
+            go2rtcStreams,
+            raw,
+        }));
+
+        const inputs = cameraConfig?.ffmpeg?.inputs;
+
+        inputs.forEach((input, index) => {
+            let streamName = `Stream ${index + 1}`;
+            const streamId = `stream_${index + 1}`;
+            const path = (typeof input === 'string') ? input : (typeof input?.path === 'string' ? input.path : undefined);
+
+            if (path) {
+                let isUsingGo2Rtc = false;
+                if (go2rtcStreamNames?.length) {
+                    isUsingGo2Rtc = go2rtcStreamNames.some(g2rtcStreamName => {
+
+                        if (path.includes(`/${g2rtcStreamName}`) || path.includes(`:${g2rtcStreamName}`)) {
+                            streamName = g2rtcStreamName;
+                            return true;
+                        }
+                    });
+                }
+                let url = path;
+
+                if (isUsingGo2Rtc) {
+                    url = `${baseGo2rtcUrl}/${streamName}`;
+                    configuredStreams.push({
+                        cameraName: this.cameraName,
+                        streamName,
+                        streamId,
+                        source: 'go2rtc',
+                        url,
+                        probedAt: now,
+                    });
+                } else {
+                    configuredStreams.push({
+                        cameraName: this.cameraName,
+                        streamName,
+                        streamId,
+                        source: 'input',
+                        url,
+                        probedAt: now,
+                    });
+                }
+
+                const urlKey = this.getDetectedStreamKey(streamId);
+                this.storage.setItem(urlKey, url);
+            }
+        });
+
+        const concurrency = options?.concurrency ?? 4;
+        const ffprobeResult = await mapLimit(configuredStreams, concurrency, async (item) => {
+            try {
+                item.ffprobe = await this.ffprobeViaFrigate(item.url);
+            } catch (e) {
+                const message = (e instanceof Error) ? e.message : String(e);
+                item.error = message;
+                logger.debug(`ffprobe failed for ${item.url}: ${message}`);
+            }
+            return item;
+        });
+
+        this.storeProbedStreams(ffprobeResult);
+
+        logger.log(`Discovered and probed ${ffprobeResult.length} configured streams for camera ${this.cameraName}: ${JSON.stringify({
+            configuredStreams,
+            ffprobeResult
+        })}`);
+
+        await this.refreshSettings();
+
+        return ffprobeResult;
+    }
+
+    private getStreamsSettings() {
+        const settings: StorageSetting[] = [];
+        if (this.isBirdseyeCamera) {
+            return settings;
+        }
+
+        const streams = this.getStoredProbedStreams();
+
+        streams.forEach((stream) => {
+            const { streamName, streamId, url } = stream
+
+            const urlKey = this.getDetectedStreamKey(streamId);
+
+            settings.push({
+                key: urlKey,
                 title: 'URL',
                 type: 'string',
-                group: this.detectedStreamsGroup,
-                subgroup,
-                defaultValue: path,
-                // readonly: true,
-                hide: !isInput,
-            };
-
-            this.storageSettings.settings[go2rtcStreamKey] = {
-                title: 'go2Rtc stream',
-                type: 'string',
-                group: this.detectedStreamsGroup,
-                subgroup,
-                immediate: true,
-                combobox: true,
-                choices: go2rtcStreamNames,
-                hide: isInput,
+                subgroup: streamName,
+                defaultValue: url,
                 onPut: async () => {
-                    this.refreshDetectedStreamsSettings();
+                    this.videoStreamOptions = undefined;
                 }
-            };
+            })
+        });
 
-            this.storageSettings.settings[destinationsKey] = {
-                title: 'Destinations',
-                type: 'string',
-                group: this.detectedStreamsGroup,
-                subgroup,
-                multiple: true,
-                combobox: true,
-                choices: destinationChoices,
-                defaultValue: defaultDestinations,
-            };
+        return settings;
+    }
 
-            this.storageSettings.settings[rolesKey] = {
-                title: 'Roles',
-                type: 'string',
-                group: this.detectedStreamsGroup,
-                subgroup,
-                multiple: true,
-                readonly: true,
-                defaultValue: roles ?? [],
-                choices: ['detect', 'record', 'audio'],
-            };
+    async refreshSettings() {
+        const dynamicSettings: StorageSetting[] = [];
+
+        const streamsSettings = this.getStreamsSettings();
+        dynamicSettings.push(...streamsSettings);
+
+        this.storageSettings = await convertSettingsToStorageSettings({
+            device: this,
+            dynamicSettings,
+            initStorage: this.initStorage
+        });
+
+        if (this.storageSettings.settings.rerunFfprobe) {
+            this.storageSettings.settings.rerunFfprobe.hide = this.isBirdseyeCamera;
         }
     }
 
@@ -236,29 +454,20 @@ class FrigateBridgeCamera extends RtspSmartCamera {
 
     async init() {
         const logger = this.getLogger();
-        // Prefer raw YAML config (config/raw) because it matches the user's configured URLs,
-        // fallback to parsed config endpoint if unavailable.
-        const rawJson = await this.provider.getConfigurationRawJson();
-        const rawInputs = rawJson?.cameras?.[this.cameraName]?.ffmpeg?.inputs;
-
-        const config = rawInputs ? undefined : await this.provider.getConfiguration();
-        const inputs = (rawInputs ?? config?.cameras?.[this.cameraName]?.ffmpeg?.inputs ?? []) as any[];
-
-        this.streamsData = (Array.isArray(inputs) ? inputs : [])
-            .map((i: any) => {
-                const path = (typeof i === 'string') ? i : i?.path;
-                const roles = (Array.isArray(i?.roles) ? i.roles : [])
-                    .map((r: any) => String(r));
-                if (!path)
-                    return undefined;
-                return {
-                    path: String(path),
-                    roles,
-                };
-            })
-            .filter(Boolean) as { path: string, roles: string[] }[];
 
         if (!this.isBirdseyeCamera) {
+            this.storageSettings.settings.rerunFfprobe.hide = false;
+            const existing = this.getStoredProbedStreams();
+            if (!existing.length) {
+                try {
+                    await this.discoverBestConfiguredStreamUrlsAndProbe({
+                        concurrency: 2,
+                    });
+                } catch (e) {
+                    logger.debug(`Initial probe failed for camera ${this.cameraName}`, e);
+                }
+            }
+
             const listener = sdk.systemManager.listen(async (eventSource, eventDetails, eventData) => {
                 if (this.mixins.length === 4 && !this.storageSettings.values.nativeMixinsAdded) {
                     this.storageSettings.values.nativeMixinsAdded = true;
@@ -292,14 +501,14 @@ class FrigateBridgeCamera extends RtspSmartCamera {
                     listener?.removeListener();
                 }
             });
-
-            this.refreshDetectedStreamsSettings();
         }
+
+        await this.refreshSettings();
     }
 
     getSnapshotUrl(): string {
         const { serverUrl } = this.provider.storageSettings.values;
-        const { cameraName } = this.storageSettings.values;
+        const cameraName = this.storage.getItem('cameraName');
         return `${serverUrl}/${cameraName}/latest.jpg`;
     }
 
@@ -340,46 +549,33 @@ class FrigateBridgeCamera extends RtspSmartCamera {
                     id: 'birdseye',
                     container: 'rtsp',
                     url,
-                    destinations: this.getDetectedStreamsSettingsChoices(),
+                    // destinations: this.getDetectedStreamsSettingsChoices(),
                 });
             }
         } else {
-            this.streamsData?.forEach(({ path, roles }, index) => {
-                this.refreshDetectedStreamsSettings();
+            const probed = this.getStoredProbedStreams();
 
-                const isHigh = roles.includes('record');
+            probed.forEach((item) => {
+                // const isHigh = item.roles?.includes('record')
+                //     ?? ((item.ffprobe?.video?.width ?? 0) >= 1280);
+                // const destinations: MediaStreamDestination[] = isHigh
+                //     ? (['local', 'local-recorder', 'medium-resolution'] as MediaStreamDestination[])
+                //     : (['low-resolution', 'remote', 'remote-recorder'] as MediaStreamDestination[]);
 
-                const presetKey = this.getDetectedStreamKey(index, 'preset');
-                const urlKey = this.getDetectedStreamKey(index, 'url');
-                const go2rtcStreamKey = this.getDetectedStreamKey(index, 'go2rtcStream');
-                const destinationsKey = this.getDetectedStreamKey(index, 'destinations');
-
-                const storedPreset = this.storage.getItem(presetKey) as StreamSource
-                const preset = this.isDetectedStreamPreset(storedPreset)
-                    ? storedPreset
-                    : this.provider.storageSettings.values.detectedStreamsDefaultPreset;
-
-                let url: string;
-                if (preset === StreamSource.Go2rtc) {
-                    const streamName = (this.storage.getItem(go2rtcStreamKey) || '');
-                    url = this.getGo2RtcUrlForStreamName(streamName) || path;
-                } else {
-                    url = this.storage.getItem(urlKey) || path;
-                }
-
-                const destinationsFromStorage = this.safeParseStringArray(this.storage.getItem(destinationsKey));
-                const filtered = destinationsFromStorage
-                    ?.filter((d): d is MediaStreamDestination => this.isMediaStreamDestination(d));
-                const destinations: MediaStreamDestination[] = (filtered?.length ? filtered : undefined) ?? (isHigh
-                    ? (['local', 'local-recorder', 'medium-resolution'] as MediaStreamDestination[])
-                    : (['medium-resolution', 'remote', 'remote-recorder'] as MediaStreamDestination[]));
+                const urlKey = this.getDetectedStreamKey(item.streamId);
+                const url = this.storage.getItem(urlKey);
 
                 streams.push({
-                    name: `Stream ${index + 1}`,
-                    id: `stream_${index + 1}`,
-                    container: 'rtsp',
+                    name: item.streamName,
+                    id: item.streamId,
+                    container: item.ffprobe?.protocol,
                     url,
-                    destinations,
+                    video: {
+                        width: item.ffprobe?.video?.width,
+                        height: item.ffprobe?.video?.height,
+                    },
+                    // container: item.container,
+                    // destinations,
                 });
             });
         }
@@ -400,7 +596,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
     }
 
     async getSettings(): Promise<Setting[]> {
-        this.refreshDetectedStreamsSettings();
+        await this.refreshSettings();
         return await this.storageSettings.getSettings();
     }
 }

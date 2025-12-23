@@ -1,10 +1,12 @@
-import sdk, { ObjectsDetected, ScryptedDevice } from '@scrypted/sdk';
-import axios, { Method } from 'axios';
-import { search } from 'fast-fuzzy';
-import { name } from '../package.json';
-import { StorageSettings } from '@scrypted/sdk/storage-settings';
-import FrigateBridgePlugin from './main';
+import sdk, { ObjectsDetected } from '@scrypted/sdk';
 import { SettingsMixinDeviceBase } from '@scrypted/sdk/settings-mixin';
+import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
+import axios, { Method } from 'axios';
+import { execFile, spawn } from 'child_process';
+import { search } from 'fast-fuzzy';
+import { promisify } from 'util';
+import { name } from '../package.json';
+import FrigateBridgePlugin from './main';
 
 export const objectDetectorNativeId = 'frigateObjectDetector';
 export const motionDetectorNativeId = 'frigateMotionDetector';
@@ -32,11 +34,6 @@ export const activeTopicWildcard = 'frigate/+/+/active';
 export const objectCountTopicWildcard = 'frigate/+/+';
 
 export const excludedAudioLabels = ['state', 'all'];
-
-export enum StreamSource {
-    Input = 'Input',
-    Go2rtc = 'go2rtc',
-}
 
 interface Snapshot {
     frame_time: number;
@@ -333,6 +330,147 @@ export const baseFrigateApi = <T = any>(props: {
     })
 }
 
+export const parseFraction = (value: unknown): number | undefined => {
+    if (typeof value !== 'string' || !value)
+        return undefined;
+    const [a, b] = value.split('/');
+    const num = Number.parseFloat(a);
+    const den = Number.parseFloat(b);
+    if (!Number.isFinite(num))
+        return undefined;
+    if (!Number.isFinite(den) || den === 0)
+        return num;
+    return num / den;
+}
+
+export const toArray = <T>(value: unknown): T[] => Array.isArray(value) ? (value as T[]) : [];
+
+export const mapLimit = async <T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> => {
+    const results: R[] = new Array(items.length);
+    let nextIndex = 0;
+
+    const workers = new Array(Math.max(1, Math.min(limit, items.length))).fill(0).map(async () => {
+        while (true) {
+            const current = nextIndex++;
+            if (current >= items.length)
+                return;
+            results[current] = await fn(items[current], current);
+        }
+    });
+
+    await Promise.all(workers);
+    return results;
+}
+
+export const sanitizeCameraInputUrl = (inputUrl: string): string => {
+    const trimmed = (inputUrl ?? '').trim();
+    if (!trimmed)
+        return trimmed;
+
+    // Remove query/hash (often transport/options) and credentials.
+    const noQuery = trimmed.split('#')[0].split('?')[0];
+
+    try {
+        const u = new URL(noQuery);
+        u.username = '';
+        u.password = '';
+        u.search = '';
+        u.hash = '';
+        return u.toString();
+    } catch {
+        // Fallback for rtsp-like URLs that may not parse cleanly.
+        return noQuery.replace(/^(rtsp[s]?:\/\/)([^@/]+@)/i, '$1');
+    }
+}
+
+export const ffprobeLocalJson = async (url: string, options?: {
+    timeoutMs?: number;
+}): Promise<{ streams?: Array<Record<string, unknown>>; format?: Record<string, unknown> } & Record<string, unknown>> => {
+    const timeoutMs = options?.timeoutMs ?? 15000;
+
+    const args = [
+        '-v', 'quiet',
+        '-print_format', 'json',
+        '-show_streams',
+        '-show_format',
+        url,
+    ];
+
+    const fallbackPath = [
+        process.env.PATH,
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/bin',
+        '/bin',
+        '/usr/sbin',
+        '/sbin',
+    ].filter(Boolean).join(':');
+
+    const runSpawn = () => new Promise<{ stdout: string; stderr: string; exitCode: number | null }>((resolve, reject) => {
+        const child = spawn('ffprobe', args, {
+            env: {
+                ...process.env,
+                PATH: fallbackPath,
+            },
+        });
+
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => {
+            try {
+                child.kill('SIGKILL');
+            } catch {
+            }
+        }, timeoutMs);
+
+        child.stdout?.on('data', d => stdout += d.toString());
+        child.stderr?.on('data', d => stderr += d.toString());
+        child.on('error', err => {
+            clearTimeout(timer);
+            reject(err);
+        });
+        child.on('close', (code) => {
+            clearTimeout(timer);
+            resolve({ stdout, stderr, exitCode: code });
+        });
+    });
+
+    const errors: string[] = [];
+
+    try {
+        const { stdout, stderr, exitCode } = await runSpawn();
+        if (exitCode !== 0) {
+            errors.push(`ffprobe exited with ${exitCode}${stderr?.trim() ? `: ${stderr.trim()}` : ''}`);
+        } else {
+            const parsed = JSON.parse(stdout || '{}');
+            return (parsed && typeof parsed === 'object') ? parsed : {};
+        }
+    } catch (e) {
+        const message = (e instanceof Error) ? e.message : String(e);
+        errors.push(`ffprobe spawn failed: ${message}`);
+    }
+
+    // Last resort: try execFile with PATH fallback, in case spawn is restricted.
+    try {
+        const execFileAsync = promisify(execFile);
+        const { stdout, stderr } = await execFileAsync('ffprobe', args, {
+            timeout: timeoutMs,
+            maxBuffer: 10 * 1024 * 1024,
+            env: {
+                ...process.env,
+                PATH: fallbackPath,
+            },
+        });
+        const parsed = JSON.parse(stdout || '{}');
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (e) {
+        const message = (e instanceof Error) ? e.message : String(e);
+        errors.push(`execFile(ffprobe) failed: ${message}`);
+    }
+
+    throw new Error(`Local ffprobe failed for ${url}. Attempts: ${errors.join(' | ')}`);
+}
+
 export type AudioType = 'dBFS' | 'rms' | string;
 
 export const isAudioLevelValue = (eventType: AudioType) => ['dBFS', 'rms'].includes(eventType);
@@ -503,4 +641,46 @@ export const parseMqttCountPayload = (payload: any): number | undefined => {
     }
 
     return undefined;
+}
+
+export const convertSettingsToStorageSettings = async (props: {
+    device: StorageSettingsDevice,
+    dynamicSettings: StorageSetting[],
+    initStorage: StorageSettingsDict<string>,
+}) => {
+    const { device, dynamicSettings, initStorage } = props;
+
+    const onPutToRestore: Record<string, any> = {};
+    Object.entries(initStorage).forEach(([key, setting]) => {
+        if (setting.onPut) {
+            onPutToRestore[key] = setting.onPut;
+        }
+    });
+
+    const settings: StorageSetting[] = await new StorageSettings(device, initStorage).getSettings();
+
+    settings.push(...dynamicSettings);
+
+    const deviceSettings: StorageSettingsDict<string> = {};
+
+    for (const setting of settings) {
+        const { value, key, onPut, ...rest } = setting;
+        deviceSettings[key] = {
+            ...rest,
+            value: rest.type === 'html' ? value : undefined
+        };
+        if (setting.onPut) {
+            deviceSettings[key].onPut = setting.onPut.bind(device)
+        }
+    }
+
+    const updateStorageSettings = new StorageSettings(device, deviceSettings);
+
+    Object.entries(onPutToRestore).forEach(([key, onPut]) => {
+        if (updateStorageSettings.settings[key]) {
+            updateStorageSettings.settings[key].onPut = onPut;
+        }
+    });
+
+    return updateStorageSettings;
 }

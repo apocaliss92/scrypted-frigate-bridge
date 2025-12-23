@@ -4,9 +4,10 @@ This Scrypted plugin allows to ingest Frigate's detections on Scrypted.
 
 Install the plugin and configure the settings:
 - Frigate server API URL (i.e. http://192.168.1.100:5000/api)
+- Base go2rtc RTSP URL (i.e. http://192.168.1.100:5000/api)
 - MQTT: configure all the fields or use the already configured MQTT plugin, it will listen to the default Frigate topic
 
-A seamingless adoption of cameras declared on Frigate will be possible. On the plugin page will be available a list of the available cameras, click on any and confirm the adoption. The device will be available rihht away with all the extensions enabled and ready to go. In the "Detected streams" section you'll be able to decide which stream source to utilize, if the go2Rtc restream of the input done by the user.
+A seamingless adoption of cameras declared on Frigate will be possible. On the plugin page will be available a list of the available cameras, click on any and confirm the adoption. The device will be available right away with all the extensions enabled and ready to go. In the "Detected streams" section you'll be able to decide which stream source to utilize, if the go2Rtc restream of the input done by the user.
 
 Currently the following extensions are possible:
 
