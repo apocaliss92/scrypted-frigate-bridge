@@ -50,23 +50,23 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         },
         zonesWithPath: {
             title: 'Zones (with path)',
+            subgroup: 'Raw data',
             readonly: true,
             json: true,
-            hide: true
         },
         activeObjects: {
             title: 'Active objects',
             description: 'Object counts from MQTT (frigate/<camera>/<object> and .../active).',
             json: true,
             defaultValue: {},
-            hide: true
+            subgroup: 'Raw data',
         },
         zoneActiveObjectMap: {
             title: 'Zone active object map',
             description: 'Object counts per zone from MQTT (frigate/<zone>/<object> and .../active), routed to this camera using main.cameraZones.',
             json: true,
             defaultValue: {},
-            hide: true
+            subgroup: 'Raw data',
         },
     });
 
