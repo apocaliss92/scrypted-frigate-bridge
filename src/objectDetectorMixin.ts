@@ -1,13 +1,13 @@
-import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
-import FrigateBridgeObjectDetector from "./objectDetector";
-import { convertFrigateBoxToScryptedBox, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, FrigateEventInner, FrigateObjectDetection, guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
-import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { uniq } from "lodash";
+import { detectionClassesDefaultMap, isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { FrigateActiveTotalCounts, FrigateObjectCountsMap } from "./mqttSettingsTypes";
+import FrigateBridgeObjectDetector from "./objectDetector";
+import { convertFrigateBoxToScryptedBox, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, FrigateEventInner, FrigateObjectDetection, initFrigateMixin, pluginId } from "./utils";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
     storageSettings = new StorageSettings<string>(this, {
@@ -48,29 +48,33 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             choices: [],
         },
         activeObjects: {
-            title: 'Active objects',
-            description: 'Object counts from MQTT (frigate/<camera>/<object> and .../active).',
+            title: 'Active Objects',
             json: true,
+            readonly: true,
             defaultValue: {},
-            subgroup: 'Raw data',
+            subgroup: 'Raw data'
         },
         zoneActiveObjectMap: {
-            title: 'Zone active object map',
-            description: 'Object counts per zone from MQTT (frigate/<zone>/<object> and .../active), routed to this camera using main.cameraZones.',
+            title: 'Zone Active Object Map',
             json: true,
+            readonly: true,
             defaultValue: {},
-            subgroup: 'Raw data',
+            subgroup: 'Raw data'
         },
     });
 
     logger: Console;
 
+    private readonly cameraCountSettingPrefix = 'activeObject:';
+    private cameraObjectCounts: FrigateObjectCountsMap = {};
+    private zoneObjectCounts: Record<string, FrigateObjectCountsMap> = {};
+
     public onFrigateCameraObjectCountsUpdate(objectName: string, patch: Partial<FrigateActiveTotalCounts>) {
         if (!objectName)
             return;
 
-        const current = (this.storageSettings.values.activeObjects ?? {}) as FrigateObjectCountsMap;
-        const existing = current?.[objectName];
+        const persisted = (this.storageSettings.values.activeObjects ?? {}) as FrigateObjectCountsMap;
+        const existing = persisted?.[objectName];
         const nextCounts: FrigateActiveTotalCounts = {
             active: existing?.active ?? 0,
             total: existing?.total ?? 0,
@@ -78,20 +82,22 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         };
 
         const next: FrigateObjectCountsMap = {
-            ...current,
+            ...persisted,
             [objectName]: nextCounts,
         };
 
         this.storageSettings.values.activeObjects = next as any;
+        this.cameraObjectCounts = next;
+        this.syncCameraActiveObjectSettings().catch(() => { });
     }
 
     public onFrigateCameraZoneObjectCountsUpdate(zoneName: string, objectName: string, patch: Partial<FrigateActiveTotalCounts>) {
         if (!zoneName || !objectName)
             return;
 
-        const current = (this.storageSettings.values.zoneActiveObjectMap ?? {}) as Record<string, FrigateObjectCountsMap>;
-        const currentZone = current?.[zoneName] ?? {};
-        const existing = currentZone?.[objectName];
+        const persistedAllZones = (this.storageSettings.values.zoneActiveObjectMap ?? {}) as Record<string, FrigateObjectCountsMap>;
+        const persistedZone = persistedAllZones?.[zoneName] ?? {};
+        const existing = persistedZone?.[objectName];
         const nextCounts: FrigateActiveTotalCounts = {
             active: existing?.active ?? 0,
             total: existing?.total ?? 0,
@@ -99,16 +105,25 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         };
 
         const nextZone: FrigateObjectCountsMap = {
-            ...currentZone,
+            ...persistedZone,
             [objectName]: nextCounts,
         };
 
-        const next = {
-            ...current,
+        const nextAllZones = {
+            ...persistedAllZones,
             [zoneName]: nextZone,
         };
 
-        this.storageSettings.values.zoneActiveObjectMap = next as any;
+        this.storageSettings.values.zoneActiveObjectMap = nextAllZones as any;
+        this.zoneObjectCounts = nextAllZones;
+
+        const cameraZones = this.getZoneNames(this.storageSettings.values.cameraName);
+        if (!cameraZones.includes(zoneName))
+            return;
+
+        const zonesSource = this.getZonesSource(this.storageSettings.values.cameraName);
+        const allowedClasses = this.getZoneAllowedClasses(zonesSource, zoneName);
+        this.syncZoneActiveObjectSettings(zoneName, `Zone: ${zoneName}`, allowedClasses).catch(() => { });
     }
 
     private readonly seenDetectionLogKeys = new Set<string>();
@@ -116,6 +131,108 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     private readonly seenDetectionLogKeysTtlMs = 2 * 60 * 1000;
 
     private readonly zoneSettingPrefix = 'zone:';
+
+    private objectNameToDetectionClass(objectName: string): string | undefined {
+        // Only show/group objects that are explicitly mappable.
+        return detectionClassesDefaultMap?.[objectName];
+    }
+
+    private formatActiveTotal(counts?: Partial<FrigateActiveTotalCounts>): string {
+        const active = counts?.active ?? 0;
+        const total = counts?.total ?? 0;
+        return `${active}/${total}`;
+    }
+
+    private aggregateCountsByDetectionClass(map: FrigateObjectCountsMap): Record<string, FrigateActiveTotalCounts> {
+        const aggregated: Record<string, FrigateActiveTotalCounts> = {};
+        for (const [objectName, counts] of Object.entries(map ?? {})) {
+            const cls = this.objectNameToDetectionClass(objectName);
+            if (!cls)
+                continue;
+            const prev = aggregated[cls] ?? { active: 0, total: 0 };
+            aggregated[cls] = {
+                active: (prev.active ?? 0) + (counts?.active ?? 0),
+                total: (prev.total ?? 0) + (counts?.total ?? 0),
+            };
+        }
+        return aggregated;
+    }
+
+    private cameraActiveObjectKey(cls: string) {
+        return `${this.cameraCountSettingPrefix}${cls}`;
+    }
+
+    private clearCameraActiveObjectSettings() {
+        for (const key of Object.keys(this.storageSettings.settings as any)) {
+            if (key.startsWith(this.cameraCountSettingPrefix))
+                delete (this.storageSettings.settings as any)[key];
+        }
+    }
+
+    private async syncCameraActiveObjectSettings() {
+        const aggregated = this.aggregateCountsByDetectionClass(this.cameraObjectCounts);
+
+        this.clearCameraActiveObjectSettings();
+
+        for (const cls of Object.keys(aggregated).sort()) {
+            const key = this.cameraActiveObjectKey(cls);
+            this.ensureDynamicStorageSetting(key, {
+                title: cls,
+                type: 'string',
+                readonly: true,
+            });
+            await this.storageSettings.putSetting(key, this.formatActiveTotal(aggregated[cls]));
+        }
+    }
+
+    private zoneActiveObjectKey(zoneName: string, cls: string) {
+        return `${this.zoneSettingPrefix}${zoneName}:activeObject:${cls}`;
+    }
+
+    private clearZoneActiveObjectSettings(zoneName: string) {
+        const prefix = `${this.zoneSettingPrefix}${zoneName}:activeObject:`;
+        for (const key of Object.keys(this.storageSettings.settings as any)) {
+            if (key.startsWith(prefix))
+                delete (this.storageSettings.settings as any)[key];
+        }
+    }
+
+    private getZoneAllowedClasses(zonesSource: any, zoneName: string): Set<string> | undefined {
+        const zoneDef: any = zonesSource?.[zoneName];
+        const objects = zoneDef?.objects;
+        if (!Array.isArray(objects) || !objects.length)
+            return undefined;
+
+        const allowed = new Set<string>();
+        for (const objectName of objects) {
+            const cls = this.objectNameToDetectionClass(objectName);
+            if (cls)
+                allowed.add(cls);
+        }
+        return allowed;
+    }
+
+    private async syncZoneActiveObjectSettings(zoneName: string, zoneSubgroup: string, allowedClasses?: Set<string>) {
+        const zoneCounts = this.zoneObjectCounts?.[zoneName] ?? {};
+        const aggregated = this.aggregateCountsByDetectionClass(zoneCounts);
+
+        this.clearZoneActiveObjectSettings(zoneName);
+
+        const classNames = allowedClasses
+            ? Array.from(allowedClasses).sort()
+            : Object.keys(aggregated).sort();
+
+        for (const cls of classNames) {
+            const key = this.zoneActiveObjectKey(zoneName, cls);
+            this.ensureDynamicStorageSetting(key, {
+                title: cls,
+                type: 'string',
+                readonly: true,
+                subgroup: zoneSubgroup,
+            });
+            await this.storageSettings.putSetting(key, this.formatActiveTotal(aggregated[cls]));
+        }
+    }
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -176,38 +293,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
     private ensureDynamicStorageSetting(key: string, setting: any) {
         (this.storageSettings.settings as any)[key] = setting;
-
-        if (!(key in (this.storageSettings.values as any))) {
-            const rawGet = () => this.storageSettings.device.storage.getItem(key);
-            const get = setting.type !== 'clippath'
-                ? () => this.storageSettings.getItem(key as any)
-                : () => {
-                    try {
-                        const raw = rawGet();
-                        if (!raw)
-                            return undefined;
-                        return JSON.parse(raw);
-                    }
-                    catch {
-                        return undefined;
-                    }
-                };
-
-            Object.defineProperty(this.storageSettings.values as any, key, {
-                get,
-                set: (value: any) => this.storageSettings.putSetting(key, value),
-                enumerable: true,
-                configurable: true,
-            });
-        }
-
-        if (!(key in (this.storageSettings.hasValue as any))) {
-            Object.defineProperty(this.storageSettings.hasValue as any, key, {
-                get: () => this.storageSettings.device.storage.getItem(key) != null,
-                enumerable: true,
-                configurable: true,
-            });
-        }
     }
 
     private getZoneNames(cameraName: string): string[] {
@@ -279,6 +364,9 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
                 const path = this.computeZonePath(zonesSource, zoneName);
                 await this.storageSettings.putSetting(pathKey, path);
             }
+
+            const allowedClasses = this.getZoneAllowedClasses(zonesSource, zoneName);
+            await this.syncZoneActiveObjectSettings(zoneName, zoneSubgroup, allowedClasses);
         }
     }
 
@@ -295,6 +383,11 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             plugin: this.plugin.plugin,
             logger,
         });
+
+        // Restore persisted MQTT counts so aggregated settings survive restarts.
+        this.cameraObjectCounts = (this.storageSettings.values.activeObjects ?? {}) as FrigateObjectCountsMap;
+        this.zoneObjectCounts = (this.storageSettings.values.zoneActiveObjectMap ?? {}) as Record<string, FrigateObjectCountsMap>;
+        await this.syncCameraActiveObjectSettings();
 
         await this.syncZoneSettings(this.storageSettings.values.cameraName);
 

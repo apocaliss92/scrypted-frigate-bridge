@@ -55,6 +55,42 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();
 
+        const getEventZones = (obj: FrigateEvent): string[] => {
+            const zones = obj?.after?.current_zones ?? obj?.before?.current_zones;
+            return Array.isArray(zones) ? zones : [];
+        };
+
+        const shouldForwardByZonePrefilter = (mixin: FrigateBridgeObjectDetectorMixin | undefined, obj: FrigateEvent): boolean => {
+            if (!mixin)
+                return true;
+
+            const eventZones = getEventZones(obj);
+            const zoneNames: string[] = mixin.storageSettings.values?.zones ?? [];
+
+            const includeZones: string[] = [];
+            const excludeZones: string[] = [];
+
+            for (const zoneName of zoneNames) {
+                const typeKey = `zone:${zoneName}:type`;
+                const type = mixin.storageSettings.getItem(typeKey) ?? 'Default';
+                if (type === 'Include')
+                    includeZones.push(zoneName);
+                else if (type === 'Exclude')
+                    excludeZones.push(zoneName);
+            }
+
+            // If any includes exist, only those pass (include takes precedence over exclude).
+            if (includeZones.length)
+                return eventZones.some(z => includeZones.includes(z));
+
+            // Otherwise, if excludes exist, block those.
+            if (excludeZones.length)
+                return !eventZones.some(z => excludeZones.includes(z));
+
+            // All default -> always forward.
+            return true;
+        };
+
         // const updateCounts = (current: FrigateActiveTotalCounts | undefined, patch: Partial<FrigateActiveTotalCounts>): FrigateActiveTotalCounts => {
         //     return {
         //         active: current?.active ?? 0,
@@ -103,13 +139,27 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                 const obj: FrigateEvent = JSON.parse(message.toString());
                 logger.debug(`Event received: ${JSON.stringify(obj)}`);
 
+                const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                    const { cameraName } = mixin.storageSettings.values;
+
+                    return cameraName === obj.after.camera;
+                });
+
+                if (!shouldForwardByZonePrefilter(foundMixin, obj)) {
+                    logger.debug(`Event skipped by zone prefilter: ${JSON.stringify({
+                        camera: obj?.after?.camera,
+                        zones: getEventZones(obj),
+                    })}`);
+                    return;
+                }
+
                 const foundMotionMixin = Object.values(this.plugin.motionDetectorDevice?.currentMixinsMap).find(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
 
                     return cameraName === obj.after.camera;
                 });
 
-                if(foundMotionMixin) {
+                if (foundMotionMixin) {
                     await foundMotionMixin.onFrigateMotionEvent('ON');
                 }
 
@@ -133,12 +183,6 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                     })}`);
                     return;
                 }
-
-                const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
-                    const { cameraName } = mixin.storageSettings.values;
-
-                    return cameraName === obj.after.camera;
-                });
 
                 if (foundMixin) {
                     await foundMixin.onFrigateDetectionEvent(obj);
