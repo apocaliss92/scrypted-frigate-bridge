@@ -16,9 +16,15 @@ export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<an
             choices: [],
             immediate: true,
         },
+        motionTimeoutSeconds: {
+            title: 'Motion timeout in seconds',
+            type: 'number',
+            defaultValue: 15
+        },
     });
 
     logger: Console;
+    motionTimeout: NodeJS.Timeout;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -41,12 +47,24 @@ export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<an
         });
     }
 
-    async onFrigateMotionEvent(value: any) {
+    async onFrigateMotionEvent(value: 'ON' | 'OFF' | string) {
         const logger = this.getLogger();
         logger.log('Motion update received', value);
+
+        const { motionTimeoutSeconds } = this.storageSettings.values;
+
         const newMotionValue = value === 'ON';
         if (newMotionValue !== this.motionDetected) {
             this.motionDetected = newMotionValue;
+        }
+
+        if (this.motionDetected) {
+            this.motionTimeout && clearTimeout(this.motionTimeout);
+            this.motionTimeout = undefined;
+
+            this.motionTimeout = setTimeout(() => {
+                this.motionDetected = false;
+            }, (motionTimeoutSeconds || 15) * 1000);
         }
     }
 

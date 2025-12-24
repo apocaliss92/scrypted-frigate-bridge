@@ -13,6 +13,7 @@ import FrigateBridgeObjectDetector from "./objectDetector";
 import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
+import axios from "axios";
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
@@ -365,11 +366,11 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
         const url = new URL(`http://localhost${request.url}`);
-        const params = url.searchParams.get('params') ?? '{}';
+        const deviceId = url.searchParams.get('deviceId');
+        const eventId = url.searchParams.get('eventId');
 
         try {
             const [_, __, ___, ____, _____, webhook] = url.pathname.split('/');
-            const { deviceId, eventId } = JSON.parse(params);
             const dev: FrigateBridgeVideoclipsMixin = this.videoclipsDevice.currentMixinsMap[deviceId];
             const devConsole = dev.getLogger();
             devConsole.debug(`Request with parameters: ${JSON.stringify({
@@ -388,6 +389,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                     // const frigateOrigin = new URL(serverUrl).origin;
                     // const vodUrl = `${frigateOrigin}/vod/${event.camera}/start/${event.start_time}/end/${event.end_time}/index.m3u8`;
 
+                    devConsole.log(`Fetching videoclip from ${videoUrl}`);
                     const sendVideo = async () => {
                         return new Promise<void>((resolve, reject) => {
                             http.get(videoUrl, { headers: request.headers }, (httpResponse) => {
@@ -458,17 +460,20 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                     // }
 
                     return;
-                } else
-                    if (webhook === 'thumbnail') {
-                        const thumbnailMo = await dev.getVideoClipThumbnail(eventId);
-                        const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(thumbnailMo, 'image/jpeg');
-                        response.send(jpeg, {
-                            headers: {
-                                'Content-Type': 'image/jpeg',
-                            }
-                        });
-                        return;
-                    }
+                } else if (webhook === 'thumbnail') {
+                    const { thumbnailUrl } = dev.getVideoclipUrls(eventId);
+                    const jpeg = await axios.get(thumbnailUrl, {
+                        responseType: "arraybuffer",
+                    });
+
+                    devConsole.log(`Fetching thumbnail from ${thumbnailUrl}`);
+                    response.send(jpeg.data as Buffer, {
+                        headers: {
+                            'Content-Type': 'image/jpeg',
+                        }
+                    });
+                    return;
+                }
             } catch (e) {
                 devConsole.log(`Error in webhook`, e);
                 response.send(`${JSON.stringify(e)}, ${e.message}`, {
@@ -486,7 +491,9 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         } catch (e) {
             this.console.log('Error in data parsing for webhook', e);
             response.send(`Error in data parsing for webhook: ${JSON.stringify({
-                params,
+                error: e.message,
+                deviceId,
+                eventId,
                 url: request.url
             })}`, {
                 code: 500,

@@ -55,13 +55,13 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();
 
-        const updateCounts = (current: FrigateActiveTotalCounts | undefined, patch: Partial<FrigateActiveTotalCounts>): FrigateActiveTotalCounts => {
-            return {
-                active: current?.active ?? 0,
-                total: current?.total ?? 0,
-                ...patch,
-            };
-        }
+        // const updateCounts = (current: FrigateActiveTotalCounts | undefined, patch: Partial<FrigateActiveTotalCounts>): FrigateActiveTotalCounts => {
+        //     return {
+        //         active: current?.active ?? 0,
+        //         total: current?.total ?? 0,
+        //         ...patch,
+        //     };
+        // }
 
         const getCameraZonesMap = (): Record<string, string[]> => {
             const raw: any = this.plugin?.storageSettings?.values?.cameraZones;
@@ -102,6 +102,16 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             if (messageTopic === eventsTopic) {
                 const obj: FrigateEvent = JSON.parse(message.toString());
                 logger.debug(`Event received: ${JSON.stringify(obj)}`);
+
+                const foundMotionMixin = Object.values(this.plugin.motionDetectorDevice?.currentMixinsMap).find(mixin => {
+                    const { cameraName } = mixin.storageSettings.values;
+
+                    return cameraName === obj.after.camera;
+                });
+
+                if(foundMotionMixin) {
+                    await foundMotionMixin.onFrigateMotionEvent('ON');
+                }
 
                 const isNew = obj.type === 'new';
                 const isEnd = obj.type === 'end';

@@ -1,12 +1,12 @@
 import sdk, { MediaObject, ScryptedDeviceBase, ScryptedMimeTypes, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
-import { baseFrigateApi, FrigateVideoClip, guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
-import FrigateBridgeVideoclips from "./videoclips";
-import { sortBy } from "lodash";
 import axios from "axios";
+import { sortBy } from "lodash";
+import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
+import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { baseFrigateApi, FrigateVideoClip, initFrigateMixin, pluginId } from "./utils";
+import FrigateBridgeVideoclips from "./videoclips";
 
 export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
     storageSettings = new StorageSettings(this, {
@@ -86,17 +86,14 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             }
 
             const [endpoint, parameters] = url.split('?') ?? '';
-            const params = {
-                deviceId: this.id,
-                eventId,
-            }
             const pathnamePrefix = new URL(url).pathname;
+            const params = `deviceId=${this.id}&eventId=${eventId}`;
 
             const parametersParsed = parameters ? `&${parameters}` : '';
-            const videoclipUrl = `${endpoint}videoclip?params=${JSON.stringify(params)}${parametersParsed}`;
-            const thumbnailUrl = `${endpoint}thumbnail?params=${JSON.stringify(params)}${parametersParsed}`;
-            const videoclipHref = `${pathnamePrefix}videoclip?params=${JSON.stringify(params)}${parametersParsed}`;
-            const thumbnailHref = `${pathnamePrefix}thumbnail?params=${JSON.stringify(params)}${parametersParsed}`;
+            const videoclipUrl = `${endpoint}videoclip?${params}${parametersParsed}`;
+            const thumbnailUrl = `${endpoint}thumbnail?${params}${parametersParsed}`;
+            const videoclipHref = `${pathnamePrefix}videoclip?${params}${parametersParsed}`;
+            const thumbnailHref = `${pathnamePrefix}thumbnail?${params}${parametersParsed}`;
 
             return { videoclipUrl, thumbnailUrl, videoclipHref, thumbnailHref };
         } catch (e) {
@@ -144,8 +141,6 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                 params
             });
 
-            logger.debug('getFrigateEvents', options, res.data);
-
             const events = res.data as FrigateVideoClip[];
             const filteredEvents = events
                 .filter(event =>
@@ -181,6 +176,12 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
                 videoclips.push(videoclip);
             }
+
+            logger.debug('getFrigateEvents', JSON.stringify({
+                options,
+                response: res.data,
+                videoclips,
+            }));
 
             return sortBy(videoclips, 'startTime');;
         } catch (e) {
@@ -221,6 +222,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
         try {
             const { thumbnailUrl } = this.getVideoclipUrls(thumbnailId);
+            logger.log(thumbnailUrl);
             const jpeg = await axios.get(thumbnailUrl, {
                 responseType: "arraybuffer",
             });
