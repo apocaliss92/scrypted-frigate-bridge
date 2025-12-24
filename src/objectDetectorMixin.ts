@@ -4,7 +4,7 @@ import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { convertFrigateBoxToScryptedBox, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, FrigateObjectDetection, guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
+import { convertFrigateBoxToScryptedBox, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, FrigateEventInner, FrigateObjectDetection, guessBestCameraName, initFrigateMixin, pluginId } from "./utils";
 import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { uniq } from "lodash";
 import { FrigateActiveTotalCounts, FrigateObjectCountsMap } from "./mqttSettingsTypes";
@@ -339,11 +339,12 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             });
         }
 
-        const frigateEvent: ObjectsDetected = {
+        const frigateEvent: FrigateEventInner = {
             timestamp,
             inputDimensions: [0, 0],
             detectionId,
             detections: frigateDetections,
+            sourceEvent: event,
         };
 
         const minimalDetections: ObjectDetectionResult[] = [
