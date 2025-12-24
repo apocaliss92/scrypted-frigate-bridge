@@ -10,7 +10,7 @@ import { uniq } from "lodash";
 import { FrigateActiveTotalCounts, FrigateObjectCountsMap } from "./mqttSettingsTypes";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
-    storageSettings = new StorageSettings(this, {
+    storageSettings = new StorageSettings<string>(this, {
         logLevel: {
             ...logLevelSetting,
         },
@@ -20,8 +20,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             choices: [],
             immediate: true,
             onPut: async (_, cameraName) => {
-                await this.setZones(cameraName);
-                await this.setZonesWithPath(cameraName);
+                await this.syncZoneSettings(cameraName);
             },
         },
         labels: {
@@ -47,12 +46,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             multiple: true,
             readonly: true,
             choices: [],
-        },
-        zonesWithPath: {
-            title: 'Zones (with path)',
-            subgroup: 'Raw data',
-            readonly: true,
-            json: true,
         },
         activeObjects: {
             title: 'Active objects',
@@ -122,6 +115,8 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     private seenDetectionLogKeysLastCleanMs = Date.now();
     private readonly seenDetectionLogKeysTtlMs = 2 * 60 * 1000;
 
+    private readonly zoneSettingPrefix = 'zone:';
+
     constructor(
         options: SettingsMixinDeviceOptions<any>,
         public plugin: FrigateBridgeObjectDetector
@@ -164,50 +159,127 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         return true;
     }
 
-    async setZones(cameraName: string) {
-        let zones: string[] = [];
-        if (cameraName) {
-            zones = this.plugin.plugin.storageSettings.values.cameraZones?.[cameraName] ?? [];
-        } else {
-            zones = [];
-        }
-
-        this.storageSettings.values.zones = zones;
+    private zoneTypeKey(zoneName: string) {
+        return `${this.zoneSettingPrefix}${zoneName}:type`;
     }
 
-    async setZonesWithPath(cameraName: string) {
-        const zoneNames: string[] = cameraName
+    private zonePathKey(zoneName: string) {
+        return `${this.zoneSettingPrefix}${zoneName}:path`;
+    }
+
+    private clearZoneSettings() {
+        for (const key of Object.keys(this.storageSettings.settings as any)) {
+            if (key.startsWith(this.zoneSettingPrefix))
+                delete (this.storageSettings.settings as any)[key];
+        }
+    }
+
+    private ensureDynamicStorageSetting(key: string, setting: any) {
+        (this.storageSettings.settings as any)[key] = setting;
+
+        if (!(key in (this.storageSettings.values as any))) {
+            const rawGet = () => this.storageSettings.device.storage.getItem(key);
+            const get = setting.type !== 'clippath'
+                ? () => this.storageSettings.getItem(key as any)
+                : () => {
+                    try {
+                        const raw = rawGet();
+                        if (!raw)
+                            return undefined;
+                        return JSON.parse(raw);
+                    }
+                    catch {
+                        return undefined;
+                    }
+                };
+
+            Object.defineProperty(this.storageSettings.values as any, key, {
+                get,
+                set: (value: any) => this.storageSettings.putSetting(key, value),
+                enumerable: true,
+                configurable: true,
+            });
+        }
+
+        if (!(key in (this.storageSettings.hasValue as any))) {
+            Object.defineProperty(this.storageSettings.hasValue as any, key, {
+                get: () => this.storageSettings.device.storage.getItem(key) != null,
+                enumerable: true,
+                configurable: true,
+            });
+        }
+    }
+
+    private getZoneNames(cameraName: string): string[] {
+        return cameraName
             ? (this.plugin.plugin.storageSettings.values.cameraZones?.[cameraName] ?? [])
             : [];
+    }
 
+    private getZonesSource(cameraName: string): any {
         const zonesFromStorage = this.plugin.plugin.storageSettings.values.cameraZonesDetails?.[cameraName] ?? {};
         const zonesFromConfig = this.plugin.plugin.config?.cameras?.[cameraName]?.zones ?? {};
-        const zonesSource = Object.keys(zonesFromStorage).length ? zonesFromStorage : zonesFromConfig;
+        return Object.keys(zonesFromStorage).length ? zonesFromStorage : zonesFromConfig;
+    }
 
-        const zonesWithPath = zoneNames.map((name: string) => {
-            const zoneDef: any = zonesSource?.[name];
-            const coords = zoneDef?.coordinates;
+    private computeZonePath(zonesSource: any, zoneName: string): [number, number][] {
+        const zoneDef: any = zonesSource?.[zoneName];
+        const coords = zoneDef?.coordinates;
 
-            let path: [number, number][] = [];
-            if (coords) {
-                try {
-                    path = convertFrigatePolygonCoordinatesToScryptedPolygon(coords, {
-                        outputScale: 100,
-                        clamp: true,
-                        close: false,
-                    });
-                } catch {
-                    path = [];
-                }
+        if (!coords)
+            return [];
+
+        try {
+            return convertFrigatePolygonCoordinatesToScryptedPolygon(coords, {
+                outputScale: 100,
+                clamp: true,
+                close: false,
+            });
+        }
+        catch {
+            return [];
+        }
+    }
+
+    async syncZoneSettings(cameraName: string) {
+        const zoneNames = this.getZoneNames(cameraName);
+        const zonesSource = this.getZonesSource(cameraName);
+
+        this.storageSettings.values.zones = zoneNames;
+        (this.storageSettings.settings as any).zones.choices = zoneNames;
+
+        this.clearZoneSettings();
+
+        for (const zoneName of zoneNames) {
+            const zoneSubgroup = `Zone: ${zoneName}`;
+            const typeKey = this.zoneTypeKey(zoneName);
+            const pathKey = this.zonePathKey(zoneName);
+
+            this.ensureDynamicStorageSetting(typeKey, {
+                title: 'Type',
+                type: 'string',
+                choices: ['Default', 'Include', 'Exclude'],
+                defaultValue: 'Default',
+                subgroup: zoneSubgroup,
+                immediate: true,
+            });
+
+            this.ensureDynamicStorageSetting(pathKey, {
+                title: 'Path',
+                description: 'Do not edit on scrypted, do it on Frigate if necessary',
+                type: 'clippath',
+                subgroup: zoneSubgroup,
+                immediate: true,
+            });
+
+            if (this.storageSettings.device.storage.getItem(typeKey) == null)
+                await this.storageSettings.putSetting(typeKey, 'Default');
+
+            if (this.storageSettings.device.storage.getItem(pathKey) == null) {
+                const path = this.computeZonePath(zonesSource, zoneName);
+                await this.storageSettings.putSetting(pathKey, path);
             }
-
-            return {
-                name,
-                path,
-            };
-        });
-
-        this.storageSettings.values.zonesWithPath = zonesWithPath;
+        }
     }
 
     async init() {
@@ -224,8 +296,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             logger,
         });
 
-        await this.setZones(this.storageSettings.values.cameraName);
-        await this.setZonesWithPath(this.storageSettings.values.cameraName);
+        await this.syncZoneSettings(this.storageSettings.values.cameraName);
 
         const { labels, cameraName } = this.storageSettings.values;
 
