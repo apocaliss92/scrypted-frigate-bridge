@@ -47,6 +47,13 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             readonly: true,
             choices: [],
         },
+        zonesWithPath: {
+            title: 'Zones (with path)',
+            json: true,
+            readonly: true,
+            defaultValue: [],
+            subgroup: 'Raw data'
+        },
         activeObjects: {
             title: 'Active Objects',
             json: true,
@@ -329,6 +336,12 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     async syncZoneSettings(cameraName: string) {
         const zoneNames = this.getZoneNames(cameraName);
         const zonesSource = this.getZonesSource(cameraName);
+
+        const zonesWithPath = zoneNames.map(name => ({
+            name,
+            path: this.computeZonePath(zonesSource, name),
+        }));
+        this.storageSettings.values.zonesWithPath = zonesWithPath as any;
 
         this.storageSettings.values.zones = zoneNames;
         (this.storageSettings.settings as any).zones.choices = zoneNames;

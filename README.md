@@ -18,7 +18,7 @@ Starts motion on scrypted when detected on Frigate
 Shows videoclips from frigate on the NVR app, if not extending NVR already
 
 ### Frigate Object Detector
-Object detection will be forwarded to Scrypted, NVR will be able to use it as well and show events on the app.
+Object detection will be forwarded to Scrypted, NVR will be able to use it as well and show events on the app. All the zones declared on frigate will be shown, with the possibility to include/exclude some of those from the events dispatched to scrypted
 
 ### Frigate Audio Detector
 Will ingest audio levels from Frigate, audio events (scream, yelling, barking, crying etc) will also be forwarded, it's currently useful for the audio detection rules on Advanced notifier
