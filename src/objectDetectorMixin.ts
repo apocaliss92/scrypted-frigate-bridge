@@ -139,11 +139,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
     private readonly zoneSettingPrefix = 'zone:';
 
-    private objectNameToDetectionClass(objectName: string): string | undefined {
-        // Only show/group objects that are explicitly mappable.
-        return detectionClassesDefaultMap?.[objectName];
-    }
-
     private formatActiveTotal(counts?: Partial<FrigateActiveTotalCounts>): string {
         const active = counts?.active ?? 0;
         const total = counts?.total ?? 0;
@@ -153,7 +148,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     private aggregateCountsByDetectionClass(map: FrigateObjectCountsMap): Record<string, FrigateActiveTotalCounts> {
         const aggregated: Record<string, FrigateActiveTotalCounts> = {};
         for (const [objectName, counts] of Object.entries(map ?? {})) {
-            const cls = this.objectNameToDetectionClass(objectName);
+            const cls = detectionClassesDefaultMap[objectName];
             if (!cls)
                 continue;
             const prev = aggregated[cls] ?? { active: 0, total: 0 };
@@ -212,7 +207,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
         const allowed = new Set<string>();
         for (const objectName of objects) {
-            const cls = this.objectNameToDetectionClass(objectName);
+            const cls = detectionClassesDefaultMap[objectName];
             if (cls)
                 allowed.add(cls);
         }
@@ -491,9 +486,11 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             zones: event.after.current_zones,
         });
 
-        // Main object detection (e.g. person).
+        const className = detectionClassesDefaultMap[eventLabel];
         frigateDetections.push({
             className: eventLabel,
+            // className,
+            // label: className !== eventLabel ? eventLabel : undefined,
             score: event.after.score,
             boundingBox: personBox,
             movement: {
@@ -526,7 +523,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
         const minimalDetections: ObjectDetectionResult[] = [
             { className: 'motion', score: 1 },
-            { className: eventLabel, score: event.after.score },
+            { className, score: event.after.score },
         ];
 
         const detection: FrigateObjectDetection = {
