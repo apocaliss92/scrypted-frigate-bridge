@@ -486,7 +486,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             zones: event.after.current_zones,
         });
 
-        const className = detectionClassesDefaultMap[eventLabel];
         frigateDetections.push({
             className: eventLabel,
             // className,
@@ -521,8 +520,9 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             sourceEvent: event,
         };
 
+        const className = detectionClassesDefaultMap[eventLabel];
         const minimalDetections: ObjectDetectionResult[] = [
-            { className: 'motion', score: 1 },
+            // { className: 'motion', score: 1 },
             { className, score: event.after.score },
         ];
 
@@ -539,6 +539,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             logger.log(`Detection event forwarded, ${JSON.stringify({
                 eventLabel,
                 subLabel,
+                minimalDetections,
             })}`);
         }
         logger.info(JSON.stringify(event));
