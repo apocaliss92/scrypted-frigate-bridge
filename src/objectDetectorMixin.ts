@@ -520,10 +520,10 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             sourceEvent: event,
         };
 
-        const className = detectionClassesDefaultMap[eventLabel];
+        // const className = detectionClassesDefaultMap[eventLabel];
         const minimalDetections: ObjectDetectionResult[] = [
-            // { className: 'motion', score: 1 },
-            { className, score: event.after.score },
+            { className: 'motion', score: 1 },
+            { className: eventLabel, score: event.after.score },
         ];
 
         const detection: FrigateObjectDetection = {
