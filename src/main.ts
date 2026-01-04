@@ -10,9 +10,10 @@ import FrigateBridgeCamera from "./camera";
 import type { FrigateConfig, FrigateRawConfig } from "./frigateConfigTypes";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
+import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, eventsRecorderNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
+import FrigateBridgeEventsRecorder from "./frigateEventsRecorder";
 import axios from "axios";
 
 type StorageKey = BaseSettingsKey |
@@ -117,6 +118,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
     motionDetectorDevice: FrigateBridgeMotionDetector;
     audioDetectorDevice: FrigateBridgeAudioDetector;
     videoclipsDevice: FrigateBridgeVideoclips;
+    eventsRecorderDevice: FrigateBridgeEventsRecorder;
     camerasMap: Record<string, FrigateBridgeCamera> = {};
     logger: Console;
     config: FrigateConfig | undefined;
@@ -340,6 +342,14 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             {
                 name: 'Frigate Videoclips',
                 nativeId: videoclipsNativeId,
+                interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
+                type: ScryptedDeviceType.API,
+            }
+        );
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
+                name: 'Frigate Events Recorder',
+                nativeId: eventsRecorderNativeId,
                 interfaces: [ScryptedInterface.MixinProvider, ScryptedInterface.Settings],
                 type: ScryptedDeviceType.API,
             }
@@ -639,6 +649,9 @@ ${cameraName}:
 
         if (nativeId === videoclipsNativeId)
             return this.videoclipsDevice ||= new FrigateBridgeVideoclips(videoclipsNativeId, this);
+
+        if (nativeId === eventsRecorderNativeId)
+            return this.eventsRecorderDevice ||= new FrigateBridgeEventsRecorder(eventsRecorderNativeId, this);
 
         if (nativeId.startsWith(importedCameraNativeIdPrefix)) {
             return this.getCamera(nativeId);
