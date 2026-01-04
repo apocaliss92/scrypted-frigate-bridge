@@ -1,4 +1,4 @@
-import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
@@ -7,7 +7,7 @@ import { detectionClassesDefaultMap, isAudioLabel, isObjectLabel } from "../../s
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { FrigateActiveTotalCounts, FrigateObjectCountsMap } from "./mqttSettingsTypes";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { convertFrigateBoxToScryptedBox, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, FrigateEventInner, FrigateObjectDetection, initFrigateMixin, pluginId } from "./utils";
+import { convertFrigateBoxToScryptedBox, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, initFrigateMixin, pluginId } from "./utils";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector {
     storageSettings = new StorageSettings<string>(this, {
@@ -68,8 +68,16 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             defaultValue: {},
             subgroup: 'Raw data'
         },
+        boxExtensionPercent: {
+            title: 'Bounding box extension (%)',
+            type: 'number',
+            description: 'Percentage to extend bounding boxes (default: 10)',
+            defaultValue: '10',
+            immediate: true,
+        },
     });
 
+    inputDimensions: [number, number];
     logger: Console;
 
     private readonly cameraCountSettingPrefix = 'activeObject:';
@@ -392,6 +400,14 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             logger,
         });
 
+        const streamOptions = await this.mixinDevice.getVideoStreamOptions();
+        const localRecorderFound = streamOptions.find(option => option.destinations.includes('local-recorder'));
+        if (localRecorderFound) {
+            logger.log('localRecorderFound', JSON.stringify(localRecorderFound));
+            this.inputDimensions = [localRecorderFound.video.width, localRecorderFound.video.height];
+        }
+
+
         // Restore persisted MQTT counts so aggregated settings survive restarts.
         this.cameraObjectCounts = (this.storageSettings.values.activeObjects ?? {}) as FrigateObjectCountsMap;
         this.zoneObjectCounts = (this.storageSettings.values.zoneActiveObjectMap ?? {}) as Record<string, FrigateObjectCountsMap>;
@@ -443,8 +459,75 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         };
     }
 
+    private convertAndScaleFrigateBox(
+        frigateBox: [number, number, number, number] | undefined | null,
+        detectWidth: number,
+        detectHeight: number,
+        realInputDimensions: [number, number] | undefined
+    ): ObjectDetectionResult['boundingBox'] | undefined {
+        if (!frigateBox || !Array.isArray(frigateBox) || frigateBox.length < 4) {
+            return undefined;
+        }
+
+        // Frigate boxes from MQTT events are [xMin, yMin, xMax, yMax] in pixels for the detect stream.
+        // Convert to Scrypted format [x, y, width, height] in detect pixel coordinates
+        const [xMin, yMin, xMax, yMax] = frigateBox;
+        const width = xMax - xMin;
+        const height = yMax - yMin;
+
+        // Boxes are already in detect pixel coordinates, no need to convert from normalized
+        const xDetect = xMin;
+        const yDetect = yMin;
+        const wDetect = width;
+        const hDetect = height;
+
+        // Scale to real inputDimensions if available
+        const scaleX = realInputDimensions ? realInputDimensions[0] / detectWidth : 1;
+        const scaleY = realInputDimensions ? realInputDimensions[1] / detectHeight : 1;
+
+        let x = Math.round(xDetect * scaleX);
+        let y = Math.round(yDetect * scaleY);
+        let w = Math.round(wDetect * scaleX);
+        let h = Math.round(hDetect * scaleY);
+
+        // Get box extension percentage from settings (default 10%)
+        const boxExtensionPercent = parseFloat(this.storageSettings.values.boxExtensionPercent || '10') || 10;
+        const extensionFactor = boxExtensionPercent / 100;
+
+        // Extend the box by the configured percentage
+        const extensionX = Math.round(w * extensionFactor);
+        const extensionY = Math.round(h * extensionFactor);
+
+        // Extend x and y (move top-left corner up and left)
+        x = Math.max(0, x - extensionX);
+        y = Math.max(0, y - extensionY);
+
+        // Extend width and height (extend bottom-right corner down and right)
+        w = w + (2 * extensionX);
+        h = h + (2 * extensionY);
+
+        // Ensure the box doesn't exceed image bounds
+        const finalInputDimensions: [number, number] = realInputDimensions || [detectWidth, detectHeight];
+        const maxX = finalInputDimensions[0];
+        const maxY = finalInputDimensions[1];
+
+        // Clamp width and height to not exceed image bounds
+        if (x + w > maxX) {
+            w = maxX - x;
+        }
+        if (y + h > maxY) {
+            h = maxY - y;
+        }
+
+        // Ensure width and height are positive
+        w = Math.max(0, w);
+        h = Math.max(0, h);
+
+        return [x, y, w, h];
+    }
+
     async onFrigateDetectionEvent(event: FrigateEvent) {
-        const { eventTypes, labels } = this.storageSettings.values;
+        const { eventTypes, labels, cameraName } = this.storageSettings.values;
         const eventLabel = event.after.label;
         const [subLabel, subLabelScore] = event.after.sub_label ?? [];
 
@@ -463,45 +546,72 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         const timestamp = Math.trunc(event.after.start_time * 1000);
         const detectionId = event.after.id ?? event.before.id;
 
-        // Frigate boxes are [xMin, yMin, xMax, yMax] in pixels for the detect stream.
-        // Scrypted expects [x, y, width, height].
-        const personBox: ObjectDetectionResult['boundingBox'] = convertFrigateBoxToScryptedBox(event.after.box);
+        // Get camera config for detect dimensions
+        const config = await this.plugin.plugin.getConfiguration();
+        const cameraConfig = config?.cameras?.[cameraName];
+        const detectWidth = cameraConfig?.detect?.width || 3840;
+        const detectHeight = cameraConfig?.detect?.height || 2160;
+
+        // Use inputDimensions from init if available
+        const realInputDimensions = this.inputDimensions && this.inputDimensions[0] > 0 && this.inputDimensions[1] > 0
+            ? this.inputDimensions
+            : undefined;
+
+        // Convert and scale Frigate boxes
+        const personBox = this.convertAndScaleFrigateBox(
+            event.after.box,
+            detectWidth,
+            detectHeight,
+            realInputDimensions
+        );
 
         // Motion box: prefer region (larger area) if available.
         const motionSourceBox = (event.after.region ?? event.after.snapshot?.region ?? event.after.box) as any;
-        const motionBox: ObjectDetectionResult['boundingBox'] = convertFrigateBoxToScryptedBox(motionSourceBox);
+        const motionBox = this.convertAndScaleFrigateBox(
+            motionSourceBox,
+            detectWidth,
+            detectHeight,
+            realInputDimensions
+        );
 
         // Face box: prefer Frigate snapshot face attribute box if present.
         const snapshotFace = event.after.snapshot?.attributes?.find(a => a?.label === 'face');
         const faceSourceBox = snapshotFace?.box ?? event.after.box;
-        const faceBox: ObjectDetectionResult['boundingBox'] = convertFrigateBoxToScryptedBox(faceSourceBox);
+        const faceBox = this.convertAndScaleFrigateBox(
+            faceSourceBox,
+            detectWidth,
+            detectHeight,
+            realInputDimensions
+        );
 
         const frigateDetections: ObjectDetectionResult[] = [];
 
         // Always include a motion detection.
-        frigateDetections.push({
-            className: 'motion',
-            score: 1,
-            boundingBox: motionBox,
-            zones: event.after.current_zones,
-        });
+        if (motionBox) {
+            frigateDetections.push({
+                className: 'motion',
+                score: 1,
+                boundingBox: motionBox,
+                zones: event.after.current_zones,
+            });
+        }
 
-        frigateDetections.push({
-            className: eventLabel,
-            // className,
-            // label: className !== eventLabel ? eventLabel : undefined,
-            score: event.after.score,
-            boundingBox: personBox,
-            movement: {
-                moving: event.after.active,
-                firstSeen: Math.trunc(event.after.start_time * 1000),
-                lastSeen: Math.trunc(event.after.end_time ? event.after.end_time * 1000 : Date.now()),
-            },
-            zones: event.after.current_zones,
-        });
+        if (personBox) {
+            frigateDetections.push({
+                className: eventLabel,
+                score: event.after.score,
+                boundingBox: personBox,
+                movement: {
+                    moving: event.after.active,
+                    firstSeen: Math.trunc(event.after.start_time * 1000),
+                    lastSeen: Math.trunc(event.after.end_time ? event.after.end_time * 1000 : Date.now()),
+                },
+                zones: event.after.current_zones,
+            });
+        }
 
         // If this is a person with a recognized sub_label, emit an additional face detection.
-        if (eventLabel === 'person' && subLabel) {
+        if (eventLabel === 'person' && subLabel && faceBox) {
             frigateDetections.push({
                 className: 'face',
                 score: subLabelScore ?? 1,
@@ -512,25 +622,14 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             });
         }
 
-        const frigateEvent: FrigateEventInner = {
+        const finalInputDimensions: [number, number] = realInputDimensions || [detectWidth, detectHeight];
+
+        const detection: ObjectsDetected = {
             timestamp,
-            inputDimensions: [0, 0],
             detectionId,
             detections: frigateDetections,
-            sourceEvent: event,
-        };
-
-        // const className = detectionClassesDefaultMap[eventLabel];
-        const minimalDetections: ObjectDetectionResult[] = [
-            { className: 'motion', score: 1 },
-            { className: eventLabel, score: event.after.score },
-        ];
-
-        const detection: FrigateObjectDetection = {
-            timestamp,
-            detections: minimalDetections,
             sourceId: pluginId,
-            frigateEvent
+            inputDimensions: finalInputDimensions,
         }
 
         const zonesKey = (event.after.current_zones ?? []).slice().sort().join(',');
@@ -539,7 +638,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             logger.log(`Detection event forwarded, ${JSON.stringify({
                 eventLabel,
                 subLabel,
-                minimalDetections,
             })}`);
         }
         logger.info(JSON.stringify(event));

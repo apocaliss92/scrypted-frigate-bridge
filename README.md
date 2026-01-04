@@ -23,6 +23,9 @@ Object detection will be forwarded to Scrypted, NVR will be able to use it as we
 ### Frigate Audio Detector
 Will ingest audio levels from Frigate, audio events (scream, yelling, barking, crying etc) will also be forwarded, it's currently useful for the audio detection rules on Advanced notifier
 
+### Frigate Events Recorder
+Will allow to show on the scrypted NVR app the detections coming from Frigate. Needs to be used in combination with Frigate Object Detector
+
 Advanced notifier is fully compatible with this plugin, any frigate detection can be used to configure AN (https://github.com/apocaliss92/scrypted-advanced-notifier)
 
 Furthermore the plugin will allow to export default configuration for each scrypted camera to use the rebroacast urls on frigate

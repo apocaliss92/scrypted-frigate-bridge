@@ -5,7 +5,6 @@ import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqt
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
 import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, objectCountTopicWildcard, parseMqttCountPayload } from "./utils";
-import { FrigateActiveTotalCounts } from "./mqttSettingsTypes";
 
 export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {

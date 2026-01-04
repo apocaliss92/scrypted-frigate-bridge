@@ -1,11 +1,12 @@
-import { EventRecorder, ObjectDetectionResult, RecordedEvent, RecordedEventOptions, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { EventRecorder, ObjectsDetected, RecordedEvent, RecordedEventOptions, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from "fs/promises";
 import { sortBy } from "lodash";
-import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
+import { join } from "path";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgeEventsRecorder from "./frigateEventsRecorder";
-import { baseFrigateApi, convertFrigateBoxToScryptedBox, ensureMixinsOrder, FrigateVideoClip, initFrigateMixin } from "./utils";
+import { ensureMixinsOrder, initFrigateMixin } from "./utils";
 
 export class FrigateBridgeEventsRecorderMixin extends SettingsMixinDeviceBase<any> implements Settings, EventRecorder {
     storageSettings = new StorageSettings<string>(this, {
@@ -18,26 +19,22 @@ export class FrigateBridgeEventsRecorderMixin extends SettingsMixinDeviceBase<an
             choices: [],
             immediate: true,
         },
-        eventTypes: {
-            title: 'Event types',
-            type: 'string',
-            multiple: true,
-            combobox: true,
-            immediate: true,
-            choices: ['new', 'update', 'end'],
-            defaultValue: ['new', 'update', 'end']
-        },
-        boxExtensionPercent: {
-            title: 'Bounding box extension (%)',
+        eventsRetentionDays: {
+            title: 'Events retention (days)',
             type: 'number',
-            description: 'Percentage to extend bounding boxes (default: 10)',
-            defaultValue: '10',
+            description: 'Number of days to keep events (MotionSensor and ObjectDetector) in JSON files (default: 30)',
+            defaultValue: '30',
             immediate: true,
         },
     });
 
     logger: Console;
-    inputDimensions: [number, number];
+    private eventsDbPath: string;
+    private eventsBuffer: RecordedEvent[] = [];
+    private bufferWriteInterval: NodeJS.Timeout | null = null;
+    private cleanupInterval: NodeJS.Timeout | null = null;
+    private motionListener: any = null;
+    private detectionListener: any = null;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -65,256 +62,287 @@ export class FrigateBridgeEventsRecorderMixin extends SettingsMixinDeviceBase<an
             logger,
         });
 
-        const streamOptions = await this.mixinDevice.getVideoStreamOptions();
-        const localRecorderFound = streamOptions.find(option => option.destinations.includes('local-recorder'));
-        if (localRecorderFound) {
-            logger.log('localRecorderFound', JSON.stringify(localRecorderFound));
-            this.inputDimensions = [localRecorderFound.video.width, localRecorderFound.video.height];
+        // Initialize events DB path using SCRYPTED_PLUGIN_VOLUME and camera ID
+        const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
+        this.eventsDbPath = join(basePath, 'events', this.id);
+        try {
+            await mkdir(this.eventsDbPath, { recursive: true });
+        } catch (e) {
+            logger.error('Error creating events DB directory', e);
+        }
+
+        // Start event listeners
+        this.startEventListeners();
+
+        // Start buffer write interval (every 5 seconds)
+        this.bufferWriteInterval = setInterval(() => {
+            this.flushEventsBuffer().catch(e => logger.error('Error flushing events buffer', e));
+        }, 5000);
+
+        // Start cleanup interval (every 10 minutes)
+        this.cleanupInterval = setInterval(() => {
+            this.cleanupOldEvents().catch(e => logger.error('Error cleaning up old events', e));
+        }, 10 * 60 * 1000);
+
+        // Initial cleanup
+        this.cleanupOldEvents().catch(logger.error);
+    }
+
+    private startEventListeners() {
+        const logger = this.getLogger();
+
+        // Listen to MotionSensor events
+        this.motionListener = sdk.systemManager.listenDevice(this.id, {
+            event: ScryptedInterface.MotionSensor,
+        }, async (_, eventDetails, data) => {
+            const now = Date.now();
+
+            const recordedEvent: RecordedEvent = {
+                details: {
+                    eventId: eventDetails.eventId,
+                    eventInterface: 'MotionSensor',
+                    eventTime: eventDetails.eventTime ?? now,
+                },
+                data
+            };
+
+            this.eventsBuffer.push(recordedEvent);
+        });
+
+        // Listen to ObjectDetector events
+        this.detectionListener = sdk.systemManager.listenDevice(this.id, {
+            event: ScryptedInterface.ObjectDetector,
+        }, async (_, eventDetails, data) => {
+            const detect: ObjectsDetected = data;
+            const now = Date.now();
+
+            const detections = (detect.detections || []).filter((d: any) => {
+                return !!d.movement?.moving;
+            });
+
+            // Only save if there are detections with moving: true
+            if (detections.length === 0) {
+                return;
+            }
+
+            const recordedEvent: RecordedEvent = {
+                details: {
+                    eventId: eventDetails.eventId,
+                    eventInterface: 'ObjectDetector',
+                    eventTime: now,
+                },
+                data: {
+                    timestamp: detect.timestamp || now,
+                    detections: detections,
+                    inputDimensions: detect.inputDimensions,
+                    detectionId: detect.detectionId,
+                },
+            };
+
+            this.eventsBuffer.push(recordedEvent);
+        });
+
+        logger.log('Event listeners started');
+    }
+
+    private async flushEventsBuffer(): Promise<void> {
+        if (this.eventsBuffer.length === 0) {
+            return;
+        }
+
+        const logger = this.getLogger();
+        const eventsToWrite = [...this.eventsBuffer];
+        this.eventsBuffer = [];
+
+        // Group events by date
+        const eventsByDate = new Map<string, RecordedEvent[]>();
+
+        for (const event of eventsToWrite) {
+            const eventDate = new Date(event.details?.eventTime || Date.now());
+            const dateStr = eventDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+            if (!eventsByDate.has(dateStr)) {
+                eventsByDate.set(dateStr, []);
+            }
+            eventsByDate.get(dateStr)!.push(event);
+        }
+
+        // Write events to their respective date files
+        for (const [dateStr, events] of eventsByDate.entries()) {
+            try {
+                const filePath = this.getEventsFilePath(new Date(dateStr));
+                const tempFilePath = `${filePath}.tmp`;
+
+                // Load existing events
+                const existingEvents = await this.loadEventsFromFile(filePath);
+
+                // Merge with existing events, avoiding duplicates
+                const eventIds = new Set(existingEvents.map((e: any) => e.details?.eventId));
+                const newEvents = events.filter(e => !eventIds.has(e.details?.eventId));
+
+                if (newEvents.length > 0) {
+                    const allEvents = [...existingEvents, ...newEvents];
+                    const sorted = sortBy(allEvents, (e: any) => e.details?.eventTime || 0);
+                    
+                    // Write to temporary file first (atomic write)
+                    await writeFile(tempFilePath, JSON.stringify(sorted, null, 2), 'utf-8');
+                    
+                    // Rename temp file to final file (atomic operation)
+                    await rename(tempFilePath, filePath);
+                    
+                    logger.debug(`Flushed ${newEvents.length} events to ${dateStr}.json`);
+                }
+            } catch (e) {
+                logger.error(`Error writing events to file for date ${dateStr}`, e);
+                // Try to clean up temp file if it exists
+                try {
+                    const filePath = this.getEventsFilePath(new Date(dateStr));
+                    const tempFilePath = `${filePath}.tmp`;
+                    await unlink(tempFilePath);
+                } catch (cleanupError) {
+                    // Ignore cleanup errors
+                }
+            }
+        }
+    }
+
+    private getEventsFilePath(date: Date): string {
+        const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+        return join(this.eventsDbPath, `${dateStr}.json`);
+    }
+
+    private async loadEventsFromFile(filePath: string): Promise<RecordedEvent[]> {
+        try {
+            const content = await readFile(filePath, 'utf-8');
+            const events = JSON.parse(content);
+            return Array.isArray(events) ? events : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    private async saveEventToFile(event: RecordedEvent): Promise<void> {
+        const eventDate = new Date(event.details?.eventTime || Date.now());
+        const filePath = this.getEventsFilePath(eventDate);
+        const tempFilePath = `${filePath}.tmp`;
+
+        try {
+            const existingEvents = await this.loadEventsFromFile(filePath);
+
+            const eventId = event.details?.eventId;
+            if (eventId && !existingEvents.find((e: any) => e.details?.eventId === eventId)) {
+                existingEvents.push(event);
+
+                // Sort by eventTime
+                const sorted = sortBy(existingEvents, (e: any) => e.details?.eventTime || 0);
+
+                // Write to temporary file first (atomic write)
+                await writeFile(tempFilePath, JSON.stringify(sorted, null, 2), 'utf-8');
+                
+                // Rename temp file to final file (atomic operation)
+                await rename(tempFilePath, filePath);
+            }
+        } catch (e) {
+            this.getLogger().error('Error saving event to file', e);
+            // Try to clean up temp file if it exists
+            try {
+                await unlink(tempFilePath);
+            } catch (cleanupError) {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    private async loadEventsFromDateRange(startDate: Date, endDate: Date): Promise<RecordedEvent[]> {
+        const events: RecordedEvent[] = [];
+        const currentDate = new Date(startDate);
+
+        while (currentDate <= endDate) {
+            const filePath = this.getEventsFilePath(currentDate);
+            const dayEvents = await this.loadEventsFromFile(filePath);
+            events.push(...dayEvents);
+
+            // Move to next day
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+
+        return events;
+    }
+
+    private async cleanupOldEvents(): Promise<void> {
+        const retentionDays = parseInt(this.storageSettings.values.eventsRetentionDays || '30') || 30;
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+        try {
+            const files = await readdir(this.eventsDbPath);
+            const logger = this.getLogger();
+
+            for (const file of files) {
+                if (!file.endsWith('.json')) continue;
+
+                // Extract date from filename (YYYY-MM-DD.json)
+                const dateStr = file.replace('.json', '');
+                const fileDate = new Date(dateStr);
+
+                if (fileDate < cutoffDate) {
+                    const filePath = join(this.eventsDbPath, file);
+                    await unlink(filePath);
+                    logger.debug(`Deleted old events file: ${file}`);
+                }
+            }
+        } catch (e) {
+            this.getLogger().error('Error cleaning up old events', e);
         }
     }
 
     async getRecordedEvents(options?: RecordedEventOptions): Promise<RecordedEvent[]> {
-        const { cameraName, eventTypes } = this.storageSettings.values;
         const logger = this.getLogger();
-
         const recordedEvents: RecordedEvent[] = [];
 
-        // First, get events from the underlying mixin device
-        try {
-            const mixinEvents = await this.mixinDevice.getRecordedEvents(options);
-            recordedEvents.push(...mixinEvents);
-        } catch (e) {
-            logger.debug('Error getting events from mixin device', e);
-        }
+        // Determine date range
+        const startDate = options?.startTime ? new Date(options.startTime) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // Default: last 7 days
+        const endDate = options?.endTime ? new Date(options.endTime) : new Date();
 
-        // If no camera configured, return only mixin events
-        if (!cameraName) {
-            logger.log('Camera name not set');
-            return recordedEvents;
-        }
+        // Load events from JSON files
+        const fileEvents = await this.loadEventsFromDateRange(startDate, endDate);
 
-        try {
-            const service = `events`;
+        // Filter by time range
+        const filteredEvents = fileEvents.filter((e: any) => {
+            const eventTime = e.details?.eventTime || 0;
+            if (options?.startTime && eventTime < options.startTime) return false;
+            if (options?.endTime && eventTime > options.endTime) return false;
+            return true;
+        });
 
-            const params: any = {
-                camera: cameraName,
-                limit: options?.count ?? 10000,
-            };
+        recordedEvents.push(...filteredEvents);
 
-            // Add time filters if specified
-            if (options?.startTime !== undefined) {
-                params.after = options.startTime / 1000;
-            }
-            if (options?.endTime !== undefined) {
-                params.before = options.endTime / 1000;
-            }
+        // Also include events from buffer that haven't been flushed yet
+        const bufferEvents = this.eventsBuffer.filter((e: any) => {
+            const eventTime = e.details?.eventTime || 0;
+            if (options?.startTime && eventTime < options.startTime) return false;
+            if (options?.endTime && eventTime > options.endTime) return false;
+            return true;
+        });
 
-            const res = await baseFrigateApi<FrigateVideoClip[]>({
-                apiUrl: this.plugin.plugin.storageSettings.values.serverUrl,
-                service,
-                params
-            });
+        recordedEvents.push(...bufferEvents);
 
-            const events = res.data || [];
+        // Sort all events by eventTime (most recent first)
+        const sortedEvents = sortBy(recordedEvents, (e: any) => e.details?.eventTime || 0).reverse();
 
-            // Filter by event types if configured
-            const filteredEvents = events.filter(event => {
-                // Filter false positives
-                if (event.false_positive) {
-                    return false;
-                }
+        // Limit if specified
+        const limitedEvents = options?.count !== undefined
+            ? sortedEvents.slice(0, options.count)
+            : sortedEvents;
 
-                // Filter by event type (if configured)
-                // Note: Frigate doesn't directly expose 'new'/'update'/'end' type in events API
-                // So we only filter by presence of snapshot/clip
-                if (!event.has_snapshot) {
-                    return false;
-                }
+        logger.debug('getRecordedEvents', JSON.stringify({
+            options,
+            fileEventsCount: filteredEvents.length,
+            bufferEventsCount: bufferEvents.length,
+            returnedCount: limitedEvents.length,
+        }));
 
-                // Filter only object type events
-                if (event.data?.type !== 'object') {
-                    return false;
-                }
-
-                return true;
-            });
-
-            // Get camera config for input dimensions
-            const config = await this.plugin.plugin.getConfiguration();
-            const cameraConfig = config?.cameras?.[cameraName];
-            const detectWidth = cameraConfig?.detect?.width || 3840;
-            const detectHeight = cameraConfig?.detect?.height || 2160;
-            const inputDimensions: [number, number] = [detectWidth, detectHeight];
-
-            // Get real inputDimensions from fromMixin first (before processing events)
-            const fromMixin = await this.mixinDevice.getRecordedEvents(options);
-            let realInputDimensions: [number, number] | undefined;
-            for (const event of fromMixin) {
-                if (event.details?.eventInterface === 'ObjectDetector' && event.data?.inputDimensions) {
-                    const dims = event.data.inputDimensions;
-                    if (Array.isArray(dims) && dims.length >= 2 && dims[0] > 0 && dims[1] > 0) {
-                        realInputDimensions = [dims[0], dims[1]];
-                        break;
-                    }
-                }
-            }
-
-            // Use real inputDimensions if found, otherwise use detect dimensions
-            const finalInputDimensions: [number, number] = realInputDimensions || inputDimensions;
-            const scaleX = realInputDimensions ? realInputDimensions[0] / detectWidth : 1;
-            const scaleY = realInputDimensions ? realInputDimensions[1] / detectHeight : 1;
-
-            // Get box extension percentage from settings (default 10%)
-            const boxExtensionPercent = parseFloat(this.storageSettings.values.boxExtensionPercent || '10') || 10;
-            const extensionFactor = boxExtensionPercent / 100;
-
-            // Convert to RecordedEvent
-            // Format similar to ObjectDetector events from fromMixin
-            const recordedEvents = filteredEvents.map(event => {
-                const eventTime = event.start_time * 1000;
-                const timestamp = Math.trunc(eventTime);
-
-                // Helper function to convert normalized Frigate box [xMin, yMin, width, height] to Scrypted format
-                // and extend it by the configured percentage, ensuring it doesn't exceed image bounds
-                const convertNormalizedBox = (box: number[] | null | undefined): [number, number, number, number] | undefined => {
-                    if (!box || !Array.isArray(box) || box.length < 4) {
-                        return undefined;
-                    }
-                    const [xMinNorm, yMinNorm, widthNorm, heightNorm] = box;
-
-                    // Convert normalized to detect pixel coordinates
-                    const xDetect = xMinNorm * detectWidth;
-                    const yDetect = yMinNorm * detectHeight;
-                    const wDetect = widthNorm * detectWidth;
-                    const hDetect = heightNorm * detectHeight;
-
-                    // Scale to real inputDimensions if available
-                    let x = Math.round(xDetect * scaleX);
-                    let y = Math.round(yDetect * scaleY);
-                    let w = Math.round(wDetect * scaleX);
-                    let h = Math.round(hDetect * scaleY);
-
-                    // Extend the box by the configured percentage
-                    const extensionX = Math.round(w * extensionFactor);
-                    const extensionY = Math.round(h * extensionFactor);
-
-                    // Extend x and y (move top-left corner up and left)
-                    x = Math.max(0, x - extensionX);
-                    y = Math.max(0, y - extensionY);
-
-                    // Extend width and height (extend bottom-right corner down and right)
-                    w = w + (2 * extensionX);
-                    h = h + (2 * extensionY);
-
-                    // Ensure the box doesn't exceed image bounds
-                    const maxX = finalInputDimensions[0];
-                    const maxY = finalInputDimensions[1];
-
-                    // Clamp width and height to not exceed image bounds
-                    if (x + w > maxX) {
-                        w = maxX - x;
-                    }
-                    if (y + h > maxY) {
-                        h = maxY - y;
-                    }
-
-                    // Ensure width and height are positive
-                    w = Math.max(0, w);
-                    h = Math.max(0, h);
-
-                    return [x, y, w, h];
-                };
-
-                // Frigate box is normalized (0-1) in event.data.box format [xMin, yMin, width, height]
-                const boundingBox = convertNormalizedBox(event.data?.box || event.box);
-
-                const mappedClassName = detectionClassesDefaultMap[event.label] || event.label;
-
-                // Build detections array with only the main object detection
-                const detections: ObjectDetectionResult[] = [];
-
-                // Add the main object detection
-                const mainDetection: ObjectDetectionResult = {
-                    className: mappedClassName.toLowerCase(), // Use lowercase like in fromMixin
-                    score: event.data?.score || event.top_score || 1,
-                    boundingBox: boundingBox || [0, 0, 0, 0],
-                };
-
-                // Add id if available (from event.id or generate one)
-                const detectionId = event.id.split('-')[1] || event.id.split('.').pop() || 'unknown';
-                mainDetection.id = detectionId;
-
-                // Add clipped if box is at edges (check against final inputDimensions)
-                if (boundingBox) {
-                    const [x, y, width, height] = boundingBox;
-                    if (x <= 0 || y <= 0 || x + width >= finalInputDimensions[0] || y + height >= finalInputDimensions[1]) {
-                        mainDetection.clipped = true;
-                    }
-                }
-
-                // Add movement info
-                const endTime = event.end_time ? event.end_time * 1000 : undefined;
-                mainDetection.movement = {
-                    firstSeen: timestamp,
-                    lastSeen: endTime || timestamp,
-                    moving: event.data?.type === 'object' ? true : false,
-                };
-
-                detections.push(mainDetection);
-
-                const recordedEvent: RecordedEvent = {
-                    details: {
-                        eventId: event.id,
-                        eventInterface: 'ObjectDetector',
-                        eventTime: eventTime,
-                    },
-                    data: {
-                        timestamp: timestamp,
-                        detections: detections,
-                        inputDimensions: finalInputDimensions,
-                        detectionId: event.id,
-                    },
-                };
-
-                return recordedEvent;
-            });
-
-            // Sort by eventTime (most recent first)
-            const sortedEvents = sortBy(recordedEvents, (e: any) => e.details?.eventTime || 0).reverse();
-
-            // Limit if specified
-            const limitedEvents = options?.count !== undefined
-                ? sortedEvents.slice(0, options.count)
-                : sortedEvents;
-
-            logger.debug('getRecordedEvents', JSON.stringify({
-                options,
-                fetchedCount: filteredEvents.length,
-                returnedCount: limitedEvents.length,
-                detectDimensions: [detectWidth, detectHeight],
-                realInputDimensions,
-                scaleX,
-                scaleY,
-            }));
-
-            // Combine: keep MotionSensor events from fromMixin, add our ObjectDetector events
-            const motionEvents = fromMixin.filter((e: any) => e.details?.eventInterface === 'MotionSensor');
-            const combinedEvents = [...motionEvents, ...limitedEvents];
-
-            // Sort all events by eventTime (most recent first)
-            const allEvents = sortBy(combinedEvents, (e: any) => e.details?.eventTime || 0).reverse();
-
-            logger.log('result', JSON.stringify({
-                fromMixin,
-                allEvents,
-                filteredEvents
-            }));
-
-            return allEvents;
-        } catch (e) {
-            logger.error('Error in getRecordedEvents', e);
-            return [];
-        }
+        return limitedEvents;
     }
 
     async getMixinSettings(): Promise<Setting[]> {
@@ -338,11 +366,39 @@ export class FrigateBridgeEventsRecorderMixin extends SettingsMixinDeviceBase<an
 
     async putMixinSetting(key: string, value: string) {
         this.storageSettings.putSetting(key, value);
+
+        // If retention days changed, cleanup old files
+        if (key === 'eventsRetentionDays') {
+            this.cleanupOldEvents().catch(e => this.getLogger().error('Error cleaning up old events', e));
+        }
     }
 
     async release() {
         const logger = this.getLogger();
         logger.info('Releasing mixin');
+
+        // Stop event listeners
+        if (this.motionListener) {
+            this.motionListener.remove();
+            this.motionListener = null;
+        }
+        if (this.detectionListener) {
+            this.detectionListener.remove();
+            this.detectionListener = null;
+        }
+
+        // Stop intervals
+        if (this.bufferWriteInterval) {
+            clearInterval(this.bufferWriteInterval);
+            this.bufferWriteInterval = null;
+        }
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = null;
+        }
+
+        // Flush remaining events in buffer
+        await this.flushEventsBuffer();
     }
 
     getLogger() {

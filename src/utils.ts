@@ -26,9 +26,6 @@ export const FRIGATE_VIDEOCLIPS_INTERFACE = `${pluginId}:videoclips`;
 export const FRIGATE_EVENTS_RECORDER_INTERFACE = `${pluginId}:eventsRecorder`;
 export const FRIGATE_SNAPSHOT_INTERFACE = `${pluginId}:snapshot`;
 
-export type FrigateEventInner = ObjectsDetected & { sourceEvent: FrigateEvent };
-export type FrigateObjectDetection = ObjectsDetected & { frigateEvent: FrigateEventInner };
-
 export const motionTopic = `frigate/+/motion`;
 export const eventsTopic = `frigate/events`;
 export const audioTopic = `frigate/+/audio/+`;
