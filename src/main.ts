@@ -1,6 +1,7 @@
 import sdk, { AdoptDevice, Device, DeviceDiscovery, DeviceProvider, DiscoveredDevice, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
+import https from 'https';
 import { parse as parseYaml } from 'yaml';
 import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
@@ -10,11 +11,60 @@ import FrigateBridgeCamera from "./camera";
 import type { FrigateConfig, FrigateRawConfig } from "./frigateConfigTypes";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, eventsRecorderNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
+import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, DetectionData, eventsRecorderNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 import FrigateBridgeEventsRecorder from "./frigateEventsRecorder";
 import axios from "axios";
+import { streamVideoclipFromUrl } from "./videoclipUtils";
+
+type VodUrlCacheEntry = {
+    vodUrl?: string;
+    fetchedAt?: number;
+    inFlight?: Promise<string>;
+};
+
+const vodUrlCache = new Map<string, VodUrlCacheEntry>();
+const VOD_URL_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const httpKeepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: 64 });
+const httpsKeepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 64 });
+
+const getVodUrlForEvent = async (options: {
+    cacheKey: string;
+    serverUrl: string;
+    eventId: string;
+}): Promise<string> => {
+    const now = Date.now();
+    const cached = vodUrlCache.get(options.cacheKey);
+    if (cached?.vodUrl && cached.fetchedAt && now - cached.fetchedAt < VOD_URL_CACHE_TTL_MS)
+        return cached.vodUrl;
+
+    const entry: VodUrlCacheEntry = cached ?? {};
+    vodUrlCache.set(options.cacheKey, entry);
+
+    if (!entry.inFlight) {
+        entry.inFlight = (async () => {
+            const eventUrl = `${options.serverUrl}/events/${options.eventId}`;
+            const eventResponse = await axios.get<DetectionData>(eventUrl, {
+                httpAgent: httpKeepAliveAgent,
+                httpsAgent: httpsKeepAliveAgent,
+            });
+            const event = eventResponse.data;
+            const frigateOrigin = new URL(options.serverUrl).origin;
+            const vodUrl = `${frigateOrigin}/vod/${event.camera}/start/${event.start_time}/end/${event.end_time}/index.m3u8`;
+            entry.vodUrl = vodUrl;
+            entry.fetchedAt = Date.now();
+            return vodUrl;
+        })();
+    }
+
+    try {
+        return await entry.inFlight;
+    } finally {
+        entry.inFlight = undefined;
+    }
+};
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
@@ -379,9 +429,27 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         const deviceId = url.searchParams.get('deviceId');
         const eventId = url.searchParams.get('eventId');
 
+        if (!deviceId || !eventId) {
+            response.send(`Missing required parameters: ${JSON.stringify({
+                deviceId,
+                eventId,
+            })}`, {
+                code: 400,
+            });
+            return;
+        }
+
         try {
             const [_, __, ___, ____, _____, webhook] = url.pathname.split('/');
             const dev: FrigateBridgeVideoclipsMixin = this.videoclipsDevice.currentMixinsMap[deviceId];
+
+            if (!dev) {
+                response.send(`Device not found for deviceId: ${deviceId}`, {
+                    code: 404,
+                });
+                return;
+            }
+
             const devConsole = dev.getLogger();
             devConsole.debug(`Request with parameters: ${JSON.stringify({
                 webhook,
@@ -391,83 +459,51 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
             try {
                 if (webhook === 'videoclip') {
-                    // const { serverUrl } = this.storageSettings.values;
                     const { videoUrl } = dev.getVideoclipUrls(eventId);
-                    // const eventUrl = `${serverUrl}/events/${eventId}`;
-                    // const eventResponse = await axios.get<DetectionData>(eventUrl);
-                    // const event = eventResponse.data;
-                    // const frigateOrigin = new URL(serverUrl).origin;
-                    // const vodUrl = `${frigateOrigin}/vod/${event.camera}/start/${event.start_time}/end/${event.end_time}/index.m3u8`;
+                    const videoclipMode = dev.storageSettings.values.videoclipMode as string | undefined;
 
-                    devConsole.log(`Fetching videoclip from ${videoUrl}`);
+                    // HLS segment proxy requests should be fast: avoid extra Frigate API calls.
+                    if ((url.searchParams.get('hls') ?? '').toLowerCase() === 'seg') {
+                        await streamVideoclipFromUrl({
+                            requestUrl: url,
+                            request,
+                            response,
+                            videoUrl,
+                            // vodUrl is not needed for segment proxy; allowed origin is derived from videoUrl.
+                            logger: devConsole,
+                            deviceId,
+                            eventId,
+                            videoclipMode,
+                        });
+                        return;
+                    }
+
+                    const { serverUrl } = this.storageSettings.values;
+                    const vodUrl = await getVodUrlForEvent({
+                        cacheKey: `${deviceId}:${eventId}`,
+                        serverUrl,
+                        eventId,
+                    });
+
                     const sendVideo = async () => {
-                        return new Promise<void>((resolve, reject) => {
-                            http.get(videoUrl, { headers: request.headers }, (httpResponse) => {
-                                if (httpResponse.statusCode[0] === 400) {
-                                    reject(new Error(`Error loading the video: ${httpResponse.statusCode} - ${httpResponse.statusMessage}. Headers: ${JSON.stringify(request.headers)}`));
-                                    return;
-                                }
-
-                                try {
-                                    response.sendStream((async function* () {
-                                        for await (const chunk of httpResponse) {
-                                            yield chunk;
-                                        }
-                                    })(), {
-                                        headers: httpResponse.headers
-                                    });
-
-                                    resolve();
-                                } catch (err) {
-                                    reject(err);
-                                }
-                            }).on('error', (e) => {
-                                devConsole.log('Error fetching videoclip', e);
-                                reject(e)
-                            });
+                        return streamVideoclipFromUrl({
+                            requestUrl: url,
+                            request,
+                            response,
+                            videoUrl,
+                            vodUrl,
+                            videoclipMode,
+                            logger: devConsole,
+                            deviceId,
+                            eventId,
                         });
                     };
-                    // const sendVideo = async () => {
-                    //     return new Promise<void>(async (resolve, reject) => {
-                    //         const playlistRes = await axios.get<string>(vodUrl);
-                    //         const lines = playlistRes.data.split('\n');
-
-                    //         devConsole.log(`Lines found`, lines);
-                    //         for (const line of lines) {
-                    //             if (line.includes('.mp4') || line.includes('.m4s')) {
-                    //                 const parsed = line.replaceAll('#EXT-X-MAP:URI=', '').replaceAll('"', '');
-                    //                 const segmentUrl = new URL(parsed, vodUrl).href;
-                    //                 devConsole.log(`Segment ${segmentUrl}`);
-
-                    //                 try {
-                    //                     const segmentRes = await axios.get<Buffer[]>(segmentUrl, {
-                    //                         responseType: 'arraybuffer',
-                    //                     });
-                    //                     response.sendStream((async function* () {
-                    //                         for await (const chunk of segmentRes.data) {
-                    //                             devConsole.log(chunk);
-                    //                             yield chunk;
-                    //                         }
-                    //                     })(), {
-                    //                         headers: segmentRes.headers
-                    //                     });
-                    //                 } catch (err) {
-                    //                     console.error(`Errore nel segmento: ${segmentUrl}`, err);
-                    //                     reject();
-                    //                 }
-                    //             }
-                    //         }
-                    //         resolve();
-                    //     });
-                    // };
-
                     try {
                         await sendVideo();
                         return;
                     } catch (e) {
                         devConsole.log('Error fetching videoclip', e);
                     }
-                    // }
 
                     return;
                 } else if (webhook === 'thumbnail') {

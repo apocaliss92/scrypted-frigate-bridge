@@ -24,6 +24,13 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             immediate: true,
             defaultValue: false
         },
+        videoclipMode: {
+            title: 'Videoclip mode',
+            type: 'string',
+            immediate: true,
+            defaultValue: 'Default',
+            choices: ['Default', 'MP4', 'VOD-HLS'],
+        },
     });
 
     logger: Console;
@@ -195,6 +202,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
         try {
             const { videoUrl } = this.getVideoclipUrls(videoId);
+            logger.log(`Fetching videoId ${videoId} from URL: ${videoUrl}`);
             await axios.get(videoUrl, {
                 headers: {
                     Range: "bytes=0-99"
@@ -222,7 +230,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
         try {
             const { thumbnailUrl } = this.getVideoclipUrls(thumbnailId);
-            logger.log(thumbnailUrl);
+            logger.info(`Fetching thumbnail from URL: ${thumbnailUrl}`);
             const jpeg = await axios.get(thumbnailUrl, {
                 responseType: "arraybuffer",
             });
