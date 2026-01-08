@@ -359,6 +359,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             return [
                 ScryptedInterface.Settings,
                 ScryptedInterface.ObjectDetector,
+                ScryptedInterface.Sensors,
                 FRIGATE_OBJECT_DETECTOR_INTERFACE
             ];
         }

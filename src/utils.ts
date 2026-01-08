@@ -1,9 +1,10 @@
-import sdk, { ObjectsDetected } from '@scrypted/sdk';
+import sdk, { ClipPath, Settings, Setting } from '@scrypted/sdk';
 import { SettingsMixinDeviceBase } from '@scrypted/sdk/settings-mixin';
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import axios, { Method } from 'axios';
 import { execFile, spawn } from 'child_process';
 import { search } from 'fast-fuzzy';
+import { keyBy } from 'lodash';
 import { promisify } from 'util';
 import { name } from '../package.json';
 import FrigateBridgePlugin from './main';
@@ -16,6 +17,68 @@ export const eventsRecorderNativeId = 'frigateEventsRecorder';
 export const birdseyeCameraNativeId = 'frigateBirdseyeCamera';
 export const importedCameraNativeIdPrefix = 'frigateCamera';
 export const birdseyeStreamName = 'birdseye';
+
+export const buildOccupancyZoneId = (props: {
+    zoneName?: string;
+    className?: string;
+}) => {
+    const { zoneName, className } = props;
+
+    let prefix = '';
+    if (zoneName)
+        prefix += `${zoneName}:`;
+    if (className)
+        prefix += `${className}:`;
+
+
+    const movingId = `${name}:${prefix}moving`;
+    const staticId = `${name}:${prefix}static`;
+    const totalId = `${name}:${prefix}total`;
+
+    return { movingId, staticId, totalId };
+}
+
+export type ZoneWithPath = {
+    name: string;
+    path: ClipPath;
+};
+
+export const getFrigateMixinSettings = async (deviceId: string) => {
+    const device = sdk.systemManager.getDeviceById<Settings>(deviceId);
+
+    const settings = await device.getSettings();
+
+    const settingsDict = keyBy(settings, 'key');
+
+    const zoneNames = settingsDict[`${objectDetectorNativeId}:zones`]?.value as string[];
+
+    const zones = zoneNames.map(zoneName => {
+        const path = settingsDict[`${objectDetectorNativeId}:zone:${zoneName}:path`]?.value as ClipPath;
+        return { name: zoneName, path };
+    });
+    const cameraName = settingsDict[`${objectDetectorNativeId}:cameraName`]?.value as string ||
+        settingsDict[`${motionDetectorNativeId}:cameraName`]?.value as string ||
+        settingsDict[`${audioDetectorNativeId}:cameraName`]?.value as string ||
+        '';
+    const audioLabels = settingsDict[`${audioDetectorNativeId}:labels`]?.value as string[] || [];
+    const objectLabels = settingsDict[`${objectDetectorNativeId}:labels`]?.value as string[] || [];
+
+    return { zones, cameraName, audioLabels, objectLabels };
+
+};
+
+export const getFrigatePluginSettings = async () => {
+    const frigatePlugin = sdk.systemManager.getDeviceByName<Settings>('Frigate bridge');
+    const settings = await frigatePlugin.getSettings();
+    const settingsDic = keyBy(settings, 'key');
+    const objectLabels = (settingsDic['objectLabels']?.value ?? []) as string[];
+    const audioLabels = (settingsDic['audioLabels']?.value ?? []) as string[];
+    const cameras = settingsDic['cameras']?.value as string[];
+    const faces = settingsDic['faces']?.value as string[];
+
+    return { cameras, audioLabels, objectLabels, faces };
+
+};
 
 export const pluginId = name;
 
