@@ -1,4 +1,4 @@
-import sdk, { MediaObject, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, ScryptedInterface, Sensors, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { MediaObject, MotionSensor, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, ScryptedInterface, Sensors, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
@@ -9,7 +9,7 @@ import { FrigateActiveTotalCounts } from "./mqttSettingsTypes";
 import FrigateBridgeObjectDetector from "./objectDetector";
 import { buildOccupancyZoneId, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, initFrigateMixin, pluginId } from "./utils";
 
-export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector, Sensors {
+export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector, Sensors, MotionSensor {
     storageSettings = new StorageSettings<string>(this, {
         logLevel: {
             ...logLevelSetting,
@@ -54,10 +54,19 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             defaultValue: '10',
             immediate: true,
         },
+        reportMotionOnDetection: {
+            title: 'Report motion on detection',
+            type: 'boolean',
+            description: 'Whether to report motion events when detections occur. Useful if you want to notify motion to homekit only when any detection happens',
+            defaultValue: false,
+            immediate: true,
+        },
     });
 
     inputDimensions: [number, number];
     logger: Console;
+
+    private motionDetectedResetTimeout?: ReturnType<typeof setTimeout>;
 
     private cameraObjectCounts: Record<string, Partial<FrigateActiveTotalCounts>> = {};
     private zoneObjectCounts: Record<string, Record<string, Partial<FrigateActiveTotalCounts>>> = {};
@@ -747,6 +756,17 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         }
         logger.info(JSON.stringify(event));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
+
+        if (this.storageSettings.values.reportMotionOnDetection) {
+            this.motionDetected = true;
+
+            if (this.motionDetectedResetTimeout)
+                clearTimeout(this.motionDetectedResetTimeout);
+
+            this.motionDetectedResetTimeout = setTimeout(() => {
+                this.motionDetected = false;
+            }, 20_000);
+        }
     }
 
     async getMixinSettings(): Promise<Setting[]> {
@@ -774,6 +794,12 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     async release() {
         const logger = this.getLogger();
         logger.info('Releasing mixin');
+
+        if (this.motionDetectedResetTimeout) {
+            clearTimeout(this.motionDetectedResetTimeout);
+            this.motionDetectedResetTimeout = undefined;
+        }
+
         this.seenDetectionLogKeys.clear();
         this.seenDetectionLogKeysLastCleanMs = Date.now();
         this.detectionInputCache.clear();
