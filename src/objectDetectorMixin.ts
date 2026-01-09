@@ -115,6 +115,16 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
     private seenDetectionLogKeysLastCleanMs = Date.now();
     private readonly seenDetectionLogKeysTtlMs = 2 * 60 * 1000;
 
+    private readonly detectionInputCache = new Map<string, {
+        expiresAtMs: number;
+        value?: MediaObject;
+        inFlight?: Promise<MediaObject>;
+    }>();
+    private detectionInputCacheLastCleanMs = Date.now();
+    private readonly detectionInputCacheTtlMs = 5 * 60 * 1000;
+    private readonly detectionInputCacheCleanIntervalMs = 60 * 1000;
+    private readonly detectionInputCacheMaxEntries = 250;
+
     private readonly zoneSettingPrefix = 'zone:';
 
     private cleanupLegacyActiveObjectSettings() {
@@ -314,6 +324,30 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         this.seenDetectionLogKeysLastCleanMs = nowMs;
     }
 
+    private maybeCleanDetectionInputCache(nowMs = Date.now()) {
+        if (nowMs - this.detectionInputCacheLastCleanMs < this.detectionInputCacheCleanIntervalMs)
+            return;
+
+        for (const [k, v] of this.detectionInputCache.entries()) {
+            if (v.expiresAtMs <= nowMs)
+                this.detectionInputCache.delete(k);
+        }
+
+        // Best-effort: keep memory bounded.
+        if (this.detectionInputCache.size > this.detectionInputCacheMaxEntries) {
+            const entries = Array.from(this.detectionInputCache.entries())
+                .sort((a, b) => a[1].expiresAtMs - b[1].expiresAtMs);
+            const toRemove = this.detectionInputCache.size - this.detectionInputCacheMaxEntries;
+            for (let i = 0; i < toRemove; i++) {
+                const key = entries[i]?.[0];
+                if (key)
+                    this.detectionInputCache.delete(key);
+            }
+        }
+
+        this.detectionInputCacheLastCleanMs = nowMs;
+    }
+
     private makeDetectionLogKey(detectionId: any, detection: ObjectDetectionResult, zonesKey: string): string {
         const className = detection?.className ?? '';
         const label = (detection)?.label ?? '';
@@ -470,16 +504,49 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
     async getDetectionInput(detectionId: string, eventId?: any): Promise<MediaObject> {
         const logger = this.getLogger();
+        const nowMs = Date.now();
+        this.maybeCleanDetectionInputCache(nowMs);
+
+        const cacheKey = detectionId;
+        const cached = this.detectionInputCache.get(cacheKey);
+        if (cached && cached.expiresAtMs > nowMs) {
+            if (cached.value)
+                return cached.value;
+            if (cached.inFlight)
+                return cached.inFlight;
+        }
 
         const url = `${this.plugin.plugin.storageSettings.values.serverUrl}/events/${detectionId}/snapshot.jpg`;
+
+        const inFlight = (async () => {
+            try {
+                const jpeg = await axios.get(url, { responseType: "arraybuffer" });
+                const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
+                logger.info(`Frigate object event ${detectionId} found`);
+                return mo;
+            } catch (e) {
+                logger.info(`Error fetching Frigate object event ${detectionId} ${eventId} from ${url}`, e.message);
+                return this.mixinDevice.getDetectionInput(detectionId, eventId);
+            }
+        })();
+
+        this.detectionInputCache.set(cacheKey, {
+            expiresAtMs: nowMs + this.detectionInputCacheTtlMs,
+            inFlight,
+        });
+
         try {
-            const jpeg = await axios.get(url, { responseType: "arraybuffer" });
-            const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
-            logger.info(`Frigate object event ${detectionId} found`);
-            return mo;
-        } catch (e) {
-            logger.info(`Error fetching Frigate object event ${detectionId} ${eventId} from ${url}`, e.message);
-            return this.mixinDevice.getDetectionInput(detectionId, eventId);
+            const value = await inFlight;
+            const entry = this.detectionInputCache.get(cacheKey);
+            if (entry) {
+                entry.value = value;
+                delete entry.inFlight;
+            }
+            return value;
+        }
+        catch (err) {
+            this.detectionInputCache.delete(cacheKey);
+            throw err;
         }
     }
 
@@ -709,6 +776,8 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         logger.info('Releasing mixin');
         this.seenDetectionLogKeys.clear();
         this.seenDetectionLogKeysLastCleanMs = Date.now();
+        this.detectionInputCache.clear();
+        this.detectionInputCacheLastCleanMs = Date.now();
     }
 
     getLogger() {
