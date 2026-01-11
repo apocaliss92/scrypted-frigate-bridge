@@ -159,7 +159,11 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                 });
 
                 if (foundMotionMixin) {
-                    await foundMotionMixin.onFrigateMotionEvent('ON');
+                    const { reportMotionOnlyOnDetection } = foundMotionMixin.storageSettings.values;
+
+                    if (reportMotionOnlyOnDetection) {
+                        await foundMotionMixin.onFrigateMotionEvent('ON');
+                    }
                 }
 
                 const isNew = obj.type === 'new';
@@ -359,7 +363,6 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             return [
                 ScryptedInterface.Settings,
                 ScryptedInterface.ObjectDetector,
-                ScryptedInterface.MotionSensor,
                 ScryptedInterface.Sensors,
                 FRIGATE_OBJECT_DETECTOR_INTERFACE
             ];

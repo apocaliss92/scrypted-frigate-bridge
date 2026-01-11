@@ -9,7 +9,7 @@ import { FrigateActiveTotalCounts } from "./mqttSettingsTypes";
 import FrigateBridgeObjectDetector from "./objectDetector";
 import { buildOccupancyZoneId, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, initFrigateMixin, pluginId } from "./utils";
 
-export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector, Sensors, MotionSensor {
+export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector, Sensors {
     storageSettings = new StorageSettings<string>(this, {
         logLevel: {
             ...logLevelSetting,
@@ -52,13 +52,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             type: 'number',
             description: 'Percentage to extend bounding boxes (default: 10)',
             defaultValue: '10',
-            immediate: true,
-        },
-        reportMotionOnDetection: {
-            title: 'Report motion on detection',
-            type: 'boolean',
-            description: 'Whether to report motion events when detections occur. Useful if you want to notify motion to homekit only when any detection happens',
-            defaultValue: false,
             immediate: true,
         },
     });
@@ -756,17 +749,6 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
         }
         logger.info(JSON.stringify(event));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
-
-        if (this.storageSettings.values.reportMotionOnDetection) {
-            this.motionDetected = true;
-
-            if (this.motionDetectedResetTimeout)
-                clearTimeout(this.motionDetectedResetTimeout);
-
-            this.motionDetectedResetTimeout = setTimeout(() => {
-                this.motionDetected = false;
-            }, 20_000);
-        }
     }
 
     async getMixinSettings(): Promise<Setting[]> {

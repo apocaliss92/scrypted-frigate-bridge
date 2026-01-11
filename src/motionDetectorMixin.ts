@@ -21,6 +21,13 @@ export class FrigateBridgeMotionDetectorMixin extends SettingsMixinDeviceBase<an
             type: 'number',
             defaultValue: 15
         },
+        reportMotionOnlyOnDetection: {
+            title: 'Report motion only on detection (Requires the Frigate object detector extension)',
+            type: 'boolean',
+            description: 'Whether to report motion only on detection events. Useful if you want to notify motion to homekit only when any detection happens',
+            defaultValue: false,
+            immediate: true,
+        },
     });
 
     logger: Console;

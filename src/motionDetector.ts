@@ -62,7 +62,11 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
                 });
 
                 if (foundMixin) {
-                    await foundMixin.onFrigateMotionEvent(message);
+                    const { reportMotionOnlyOnDetection } = foundMixin.storageSettings.values;
+
+                    if (!reportMotionOnlyOnDetection) {
+                        await foundMixin.onFrigateMotionEvent(message);
+                    }
                 }
             }
         };
