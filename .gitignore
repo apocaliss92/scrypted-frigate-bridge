@@ -2,5 +2,6 @@
 out/
 node_modules/
 .venv
+.npmrc
 src/darwin arm64 Darwin Kernel Version 23.yml
 log.json

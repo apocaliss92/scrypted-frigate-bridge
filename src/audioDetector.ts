@@ -10,6 +10,7 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
     initStorage: StorageSettingsDict<string> = {
         logLevel: {
             ...logLevelSetting,
+            hide: true,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
@@ -72,7 +73,7 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
                         await foundMixin.onAudioDetectionsSnapshot(labelsMap);
                     }
                 } catch (e) {
-                    logger.debug('Error parsing frigate/audio_detections payload', e);
+                    logger.log('Error parsing frigate/audio_detections payload', e);
                 }
 
                 return;
@@ -91,14 +92,7 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
                     if (isAudioLevelValue(eventSubType)) {
                         // frigate/salone/audio/rms
                         // frigate/salone/audio/dBFS
-                        logger.debug(`Audio level message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
-
                         await foundMixin.onAudioLevelReceived(eventSubType, message);
-                    } else {
-                        // frigate/salone/audio/speech
-                        logger.info(`Audio event message received ${messageTopic} ${message}: ${camera} ${eventSubType}`);
-
-                        await foundMixin.onAudioEventReceived(eventSubType, message);
                     }
                 }
             }
