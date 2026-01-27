@@ -10,7 +10,6 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
     initStorage: StorageSettingsDict<string> = {
         logLevel: {
             ...logLevelSetting,
-            hide: true,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
@@ -66,6 +65,8 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
                             const { cameraName: mixinCameraName } = mixin.storageSettings.values;
                             return mixinCameraName === cameraName;
                         });
+                        // const logger = foundMixin ? foundMixin.getLogger() : this.getLogger();
+                        // logger.info(`Audio detections snapshot received for camera ${cameraName}: ${JSON.stringify(labelsMap)}`);
 
                         if (!foundMixin)
                             continue;
