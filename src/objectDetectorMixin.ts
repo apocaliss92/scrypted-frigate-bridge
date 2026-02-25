@@ -7,7 +7,7 @@ import { detectionClassesDefaultMap, isAudioLabel, isObjectLabel } from "../../s
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { FrigateActiveTotalCounts } from "./mqttSettingsTypes";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { buildOccupancyZoneId, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, initFrigateMixin, pluginId } from "./utils";
+import { buildOccupancyZoneId, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, initFrigateMixin, maskForLog, pluginId } from "./utils";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector, Sensors {
     storageSettings = new StorageSettings<string>(this, {
@@ -527,7 +527,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
                 logger.info(`Frigate object event ${detectionId} found`);
                 return mo;
             } catch (e) {
-                logger.info(`Error fetching Frigate object event ${detectionId} ${eventId} from ${url}`, e.message);
+                logger.info(`Error fetching Frigate object event ${detectionId} ${eventId} from ${maskForLog(url)}`, e.message);
                 return this.mixinDevice.getDetectionInput(detectionId, eventId);
             }
         })();
@@ -646,7 +646,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             !labels.includes(event.after.label) ||
             !eventTypes.includes(event.type)) {
 
-            logger.debug('Event skipped', JSON.stringify(event));
+            logger.debug('Event skipped', maskForLog(event));
             return;
         }
 
@@ -747,7 +747,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
                 subLabel,
             })}`);
         }
-        logger.info(JSON.stringify(event));
+        logger.info(maskForLog(event));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
     }
 

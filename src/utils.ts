@@ -89,6 +89,17 @@ export const FRIGATE_VIDEOCLIPS_INTERFACE = `${pluginId}:videoclips`;
 export const FRIGATE_EVENTS_RECORDER_INTERFACE = `${pluginId}:eventsRecorder`;
 export const FRIGATE_SNAPSHOT_INTERFACE = `${pluginId}:snapshot`;
 
+/** Masks IPv4, IPv6 and URL hosts in a string for safe logging. */
+export const maskForLog = (value: unknown): string => {
+    if (value == null) return String(value);
+    const s = typeof value === 'string' ? value : JSON.stringify(value);
+    return s
+        .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP_REDACTED]')
+        .replace(/\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b/g, '[IP_REDACTED]')
+        .replace(/(\w+:\/\/)([^/\s:]+(?::\d+)?)(\/[^\s]*)?/g, (_, scheme, hostPort, path) =>
+            `${scheme}[HOST_REDACTED]${path ?? ''}`);
+};
+
 export const motionTopic = `frigate/+/motion`;
 export const eventsTopic = `frigate/events`;
 export const audioTopic = `frigate/+/audio/+`;

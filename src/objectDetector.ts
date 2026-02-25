@@ -4,7 +4,7 @@ import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypt
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
-import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, objectCountTopicWildcard, parseMqttCountPayload } from "./utils";
+import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, maskForLog, objectCountTopicWildcard, parseMqttCountPayload } from "./utils";
 
 export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -136,7 +136,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
         this.mqttCb = async (messageTopic, message) => {
             if (messageTopic === eventsTopic) {
                 const obj: FrigateEvent = JSON.parse(message.toString());
-                logger.debug(`Event received: ${JSON.stringify(obj)}`);
+                logger.debug(`Event received: ${maskForLog(obj)}`);
 
                 const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
@@ -178,7 +178,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                 const isFalsePositive = obj.before.false_positive || obj.after.false_positive;
 
                 if (isFalsePositive) {
-                    logger.debug(`Event skipped: ${JSON.stringify({
+                    logger.debug(`Event skipped: ${maskForLog({
                         obj,
                         hasSnapshot,
                         isFalsePositive,

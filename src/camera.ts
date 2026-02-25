@@ -4,7 +4,7 @@ import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/sr
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";
-import { audioDetectorNativeId, baseFrigateApi, birdseyeStreamName, convertSettingsToStorageSettings, ffprobeLocalJson, mapLimit, motionDetectorNativeId, objectDetectorNativeId, parseFraction, toArray, videoclipsNativeId } from "./utils";
+import { audioDetectorNativeId, baseFrigateApi, birdseyeStreamName, convertSettingsToStorageSettings, ffprobeLocalJson, mapLimit, maskForLog, motionDetectorNativeId, objectDetectorNativeId, parseFraction, toArray, videoclipsNativeId } from "./utils";
 
 type FfprobeSummary = {
     url: string;
@@ -320,11 +320,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
         const cameraConfig = (raw?.cameras?.[this.cameraName] ?? config?.cameras?.[this.cameraName]);
         const configuredStreams: ConfiguredStreamProbe[] = [];
 
-        logger.info(JSON.stringify({
-            cameraConfig,
-            go2rtcStreams,
-            raw,
-        }));
+        logger.info(maskForLog({ cameraConfig, go2rtcStreams, raw }));
 
         const inputs = cameraConfig?.ffmpeg?.inputs;
 
@@ -385,17 +381,14 @@ class FrigateBridgeCamera extends RtspSmartCamera {
             } catch (e) {
                 const message = (e instanceof Error) ? e.message : String(e);
                 item.error = message;
-                logger.debug(`ffprobe failed for ${item.url}: ${message}`);
+                logger.debug(`ffprobe failed for ${maskForLog(item.url)}: ${message}`);
             }
             return item;
         });
 
         this.storeProbedStreams(ffprobeResult);
 
-        logger.log(`Discovered and probed ${ffprobeResult.length} configured streams for camera ${this.cameraName}: ${JSON.stringify({
-            configuredStreams,
-            ffprobeResult
-        })}`);
+        logger.log(`Discovered and probed ${ffprobeResult.length} configured streams for camera ${this.cameraName}: ${maskForLog({ configuredStreams, ffprobeResult })}`);
 
         await this.refreshSettings();
 

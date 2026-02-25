@@ -5,7 +5,7 @@ import axios from "axios";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { DetectionClass } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeAudioDetector from "./audioDetector";
-import { AudioType, ensureMixinsOrder, initFrigateMixin, pluginId } from "./utils";
+import { AudioType, ensureMixinsOrder, initFrigateMixin, maskForLog, pluginId } from "./utils";
 import { uniq } from "lodash";
 
 export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, AudioVolumeControl, ObjectDetector {
@@ -75,7 +75,7 @@ export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any
             logger.info(`Frigate audio event ${detectionId} found`);
             return mo;
         } catch (e) {
-            logger.info(`Error fetching Frigate audio event ${detectionId} ${eventId} from ${url}`, e.message);
+            logger.info(`Error fetching Frigate audio event ${detectionId} ${eventId} from ${maskForLog(url)}`, e.message);
             return this.mixinDevice.getDetectionInput(detectionId, eventId);
         }
     }

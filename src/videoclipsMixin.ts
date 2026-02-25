@@ -5,7 +5,7 @@ import axios from "axios";
 import { sortBy } from "lodash";
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { baseFrigateApi, FrigateVideoClip, initFrigateMixin, pluginId } from "./utils";
+import { baseFrigateApi, FrigateVideoClip, initFrigateMixin, maskForLog, pluginId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 
 export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
@@ -184,11 +184,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                 videoclips.push(videoclip);
             }
 
-            logger.debug('getFrigateEvents', JSON.stringify({
-                options,
-                response: res.data,
-                videoclips,
-            }));
+            logger.debug('getFrigateEvents', maskForLog({ options, response: res.data, videoclips }));
 
             return sortBy(videoclips, 'startTime');;
         } catch (e) {
@@ -202,7 +198,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
         try {
             const { videoUrl } = this.getVideoclipUrls(videoId);
-            logger.log(`Fetching videoId ${videoId} from URL: ${videoUrl}`);
+            logger.log(`Fetching videoId ${videoId} from URL: ${maskForLog(videoUrl)}`);
             await axios.get(videoUrl, {
                 headers: {
                     Range: "bytes=0-99"
@@ -230,7 +226,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
 
         try {
             const { thumbnailUrl } = this.getVideoclipUrls(thumbnailId);
-            logger.info(`Fetching thumbnail from URL: ${thumbnailUrl}`);
+            logger.info(`Fetching thumbnail from URL: ${maskForLog(thumbnailUrl)}`);
             const jpeg = await axios.get(thumbnailUrl, {
                 responseType: "arraybuffer",
             });

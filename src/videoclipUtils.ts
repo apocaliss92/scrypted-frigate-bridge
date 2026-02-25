@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import zlib from 'zlib';
+import { maskForLog } from './utils';
 
 type TranscodedCacheEntry = {
     key: string;
@@ -657,7 +658,7 @@ const tryServeVodHls = async (options: StreamVideoclipOptions, cacheKey: string,
     }
 
     try {
-        logger.log('Videoclip: trying VOD HLS playlist', { vodUrl });
+        logger.log('Videoclip: trying VOD HLS playlist', { vodUrl: maskForLog(vodUrl) });
 
         if (!entry.inFlightVodPlaylist) {
             entry.inFlightVodPlaylist = fetchVodHlsPlaylistText({
@@ -762,7 +763,7 @@ export const streamVideoclipFromUrl = async (options: StreamVideoclipOptions): P
         }
 
         options.logger.log('Videoclip: proxying HLS segment', {
-            target,
+            target: maskForLog(target),
         });
 
         const allowedOrigins = [new URL(options.videoUrl).origin];
@@ -803,7 +804,7 @@ export const streamVideoclipFromUrl = async (options: StreamVideoclipOptions): P
     const hasRange = !!decision.clientInfo.range;
 
     if (decision.mode === 'vod-hls') {
-        options.logger.log(`Fetching videoclip via VOD/HLS from ${options.vodUrl} (mode=vod-hls)`);
+        options.logger.log(`Fetching videoclip via VOD/HLS from ${maskForLog(options.vodUrl)} (mode=vod-hls)`);
         const ok = await tryServeVodHls(options, cacheKey, entry);
         if (ok)
             return;
@@ -818,7 +819,7 @@ export const streamVideoclipFromUrl = async (options: StreamVideoclipOptions): P
         // fall through to MP4
     }
 
-    options.logger.log(`Fetching videoclip from ${options.videoUrl} (mode=mp4)`);
+    options.logger.log(`Fetching videoclip from ${maskForLog(options.videoUrl)} (mode=mp4)`);
 
     // For iOS InstalledApp and/or Range requests, serve MP4 from cache to guarantee Content-Length + Range.
     if (isIosInstalledApp || hasRange)

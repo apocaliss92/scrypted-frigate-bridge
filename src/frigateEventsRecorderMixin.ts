@@ -29,7 +29,7 @@ import {
   logLevelSetting,
 } from "../../scrypted-apocaliss-base/src/basePlugin";
 import FrigateBridgeEventsRecorder from "./frigateEventsRecorder";
-import { ensureMixinsOrder, initFrigateMixin } from "./utils";
+import { ensureMixinsOrder, initFrigateMixin, maskForLog } from "./utils";
 
 export class FrigateBridgeEventsRecorderMixin
   extends SettingsMixinDeviceBase<any>
@@ -63,6 +63,7 @@ export class FrigateBridgeEventsRecorderMixin
   private detectionListener: any = null;
   private flushingEventsBuffer = false;
   private flushAgainRequested = false;
+  private released = false;
 
   constructor(
     options: SettingsMixinDeviceOptions<any>,
@@ -132,6 +133,7 @@ export class FrigateBridgeEventsRecorderMixin
       },
       async (_, eventDetails, data) => {
         const now = Date.now();
+        const logger = this.getLogger();
 
         const recordedEvent: RecordedEvent = {
           details: {
@@ -142,6 +144,9 @@ export class FrigateBridgeEventsRecorderMixin
           data,
         };
 
+        logger.debug(
+          `Event received: interface=MotionSensor eventId=${eventDetails.eventId} eventTime=${recordedEvent.details.eventTime} -> buffered`,
+        );
         this.eventsBuffer.push(recordedEvent);
       },
     );
@@ -160,8 +165,12 @@ export class FrigateBridgeEventsRecorderMixin
           return !!d.movement?.moving;
         });
 
+        const logger = this.getLogger();
         // Only save if there are detections with moving: true
         if (detections.length === 0) {
+          logger.debug(
+            `Event received: interface=ObjectDetector eventId=${eventDetails.eventId} -> skipped (no moving detections)`,
+          );
           return;
         }
 
@@ -179,6 +188,9 @@ export class FrigateBridgeEventsRecorderMixin
           },
         };
 
+        logger.debug(
+          `Event received: interface=ObjectDetector eventId=${eventDetails.eventId} eventTime=${now} detections=${detections.length} -> buffered`,
+        );
         this.eventsBuffer.push(recordedEvent);
       },
     );
@@ -187,6 +199,7 @@ export class FrigateBridgeEventsRecorderMixin
   }
 
   private async flushEventsBuffer(): Promise<void> {
+    if (this.released) return;
     if (this.flushingEventsBuffer) {
       this.flushAgainRequested = true;
       return;
@@ -250,6 +263,18 @@ export class FrigateBridgeEventsRecorderMixin
           const newEvents = events.filter(
             (e) => !eventIds.has(e.details?.eventId),
           );
+          const skipped = events.length - newEvents.length;
+          if (skipped > 0) {
+            logger.debug(
+              `Flush ${dateStr}: ${skipped} event(s) skipped (duplicate eventId)`,
+            );
+          }
+          events.forEach((e) => {
+            const saved = !eventIds.has(e.details?.eventId);
+            logger.debug(
+              `Flush event: eventId=${e.details?.eventId} interface=${e.details?.eventInterface} date=${dateStr} -> ${saved ? "saved" : "skipped (duplicate)"}`,
+            );
+          });
 
           if (newEvents.length > 0) {
             const allEvents = [...existingEvents, ...newEvents];
@@ -268,6 +293,9 @@ export class FrigateBridgeEventsRecorderMixin
             // Rename temp file to final file (atomic operation)
             await rename(tempFilePath, filePath);
 
+            logger.info(
+              `Events saved: ${newEvents.length} event(s) written to ${maskForLog(filePath)}`,
+            );
             logger.debug(
               `Flushed ${newEvents.length} events to ${dateStr}.json`,
             );
@@ -286,7 +314,7 @@ export class FrigateBridgeEventsRecorderMixin
       }
     } finally {
       this.flushingEventsBuffer = false;
-      if (this.flushAgainRequested) {
+      if (!this.released && this.flushAgainRequested) {
         this.flushAgainRequested = false;
         // Flush again if another flush was requested while we were busy.
         await this.flushEventsBuffer();
@@ -371,6 +399,13 @@ export class FrigateBridgeEventsRecorderMixin
     startDate: Date,
     endDate: Date,
   ): Promise<RecordedEvent[]> {
+    const logger = this.getLogger();
+    const startStr = startDate.toISOString().split("T")[0];
+    const endStr = endDate.toISOString().split("T")[0];
+    logger.debug(
+      `loadEventsFromDateRange: start=${startStr} end=${endStr}`,
+    );
+
     const events: RecordedEvent[] = [];
     const currentDate = new Date(startDate);
 
@@ -378,15 +413,23 @@ export class FrigateBridgeEventsRecorderMixin
       const filePath = this.getEventsFilePath(currentDate);
       const dayEvents = await this.loadEventsFromFile(filePath);
       events.push(...dayEvents);
+      const dateStr = currentDate.toISOString().split("T")[0];
+      logger.debug(
+        `loadEventsFromDateRange: date=${dateStr} path=${maskForLog(filePath)} loaded=${dayEvents.length} (total so far=${events.length})`,
+      );
 
       // Move to next day
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
+    logger.debug(
+      `loadEventsFromDateRange: done start=${startStr} end=${endStr} totalEvents=${events.length}`,
+    );
     return events;
   }
 
   private async cleanupOldEvents(): Promise<void> {
+    if (this.released) return;
     const retentionDays =
       parseInt(this.storageSettings.values.eventsRetentionDays || "30") || 30;
     const cutoffDate = new Date();
@@ -421,6 +464,10 @@ export class FrigateBridgeEventsRecorderMixin
     options?: RecordedEventOptions,
   ): Promise<RecordedEvent[]> {
     const logger = this.getLogger();
+    logger.debug(
+      `getRecordedEvents: options=${JSON.stringify(options ?? {})}`,
+    );
+
     const recordedEvents: RecordedEvent[] = [];
 
     // Determine date range
@@ -431,6 +478,9 @@ export class FrigateBridgeEventsRecorderMixin
 
     // Load events from JSON files
     const fileEvents = await this.loadEventsFromDateRange(startDate, endDate);
+    logger.debug(
+      `getRecordedEvents: fileEvents loaded=${fileEvents.length}`,
+    );
 
     // Filter by time range
     const filteredEvents = fileEvents.filter((e: any) => {
@@ -439,6 +489,9 @@ export class FrigateBridgeEventsRecorderMixin
       if (options?.endTime && eventTime > options.endTime) return false;
       return true;
     });
+    logger.debug(
+      `getRecordedEvents: after time filter fileEvents=${filteredEvents.length}`,
+    );
 
     recordedEvents.push(...filteredEvents);
 
@@ -449,6 +502,9 @@ export class FrigateBridgeEventsRecorderMixin
       if (options?.endTime && eventTime > options.endTime) return false;
       return true;
     });
+    logger.debug(
+      `getRecordedEvents: bufferEvents in range=${bufferEvents.length} totalRecorded=${recordedEvents.length}`,
+    );
 
     recordedEvents.push(...bufferEvents);
 
@@ -465,13 +521,7 @@ export class FrigateBridgeEventsRecorderMixin
         : sortedEvents;
 
     logger.debug(
-      "getRecordedEvents",
-      JSON.stringify({
-        options,
-        fileEventsCount: filteredEvents.length,
-        bufferEventsCount: bufferEvents.length,
-        returnedCount: limitedEvents.length,
-      }),
+      `getRecordedEvents: sorted=${sortedEvents.length} countLimit=${options?.count ?? "none"} returned=${limitedEvents.length}`,
     );
 
     return limitedEvents;
@@ -510,19 +560,8 @@ export class FrigateBridgeEventsRecorderMixin
 
   async release() {
     const logger = this.getLogger();
-    logger.info("Releasing mixin");
 
-    // Stop event listeners
-    if (this.motionListener) {
-      this.motionListener.remove();
-      this.motionListener = null;
-    }
-    if (this.detectionListener) {
-      this.detectionListener.remove();
-      this.detectionListener = null;
-    }
-
-    // Stop intervals
+    // Stop intervals first so no further flush/cleanup is scheduled
     if (this.bufferWriteInterval) {
       clearInterval(this.bufferWriteInterval);
       this.bufferWriteInterval = null;
@@ -532,8 +571,22 @@ export class FrigateBridgeEventsRecorderMixin
       this.cleanupInterval = null;
     }
 
-    // Flush remaining events in buffer
+    // Stop event listeners (no new events into buffer)
+    if (this.motionListener) {
+      this.motionListener.remove();
+      this.motionListener = null;
+    }
+    if (this.detectionListener) {
+      this.detectionListener.remove();
+      this.detectionListener = null;
+    }
+
+    // One last flush to save remaining buffer, then mark released
     await this.flushEventsBuffer();
+    this.released = true;
+
+    delete this.plugin.currentMixinsMap[this.id];
+    logger.info("Releasing mixin");
   }
 
   getLogger() {
