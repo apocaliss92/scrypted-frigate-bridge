@@ -336,13 +336,19 @@ class FrigateBridgeCamera extends RtspSmartCamera {
             if (path) {
                 let isUsingGo2Rtc = false;
                 if (go2rtcStreamNames?.length) {
-                    isUsingGo2Rtc = go2rtcStreamNames.some(g2rtcStreamName => {
-
-                        if (path.includes(`/${g2rtcStreamName}`) || path.includes(`:${g2rtcStreamName}`)) {
-                            streamName = g2rtcStreamName;
-                            return true;
-                        }
-                    });
+                    const matchingNames = go2rtcStreamNames.filter(
+                        (g) => path.includes(`/${g}`) || path.includes(`:${g}`),
+                    );
+                    // Prefer the most specific match: if one name contains another (e.g. "Main" vs "Main-Sub"),
+                    // do not treat them as the same — use only names that are not a substring of another match
+                    // so each stream gets a distinct name (fixes stream name conflicts per issue #9).
+                    const bestMatches = matchingNames.filter(
+                        (name) => !matchingNames.some((other) => other !== name && other.includes(name)),
+                    );
+                    if (bestMatches.length) {
+                        streamName = bestMatches.sort((a, b) => b.length - a.length)[0];
+                        isUsingGo2Rtc = true;
+                    }
                 }
                 let url = path;
 
