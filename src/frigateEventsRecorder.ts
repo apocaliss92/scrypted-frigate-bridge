@@ -1,5 +1,6 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import { join } from "path";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FRIGATE_EVENTS_RECORDER_INTERFACE } from "./utils";
@@ -9,6 +10,13 @@ export default class FrigateBridgeEventsRecorder extends ScryptedDeviceBase impl
     initStorage: StorageSettingsDict<string> = {
         logLevel: {
             ...logLevelSetting,
+        },
+        eventsStoragePath: {
+            title: "Events storage directory",
+            type: "string",
+            description: "Base directory where event JSON files are stored (physical path on the host, e.g. /data/frigate-events). Each camera uses a subfolder named by camera id. Leave empty for default: plugin volume under 'events'.",
+            defaultValue: "",
+            placeholder: "(default: plugin volume/events)",
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
@@ -44,6 +52,14 @@ export default class FrigateBridgeEventsRecorder extends ScryptedDeviceBase impl
             this.getLogger().log('Error in getSettings', e);
             return [];
         }
+    }
+
+    /** Base path for events storage; each mixin uses this + camera id. */
+    getEventsStorageBasePath(): string {
+        const custom = this.storageSettings.values.eventsStoragePath?.trim();
+        if (custom) return custom;
+        const base = process.env.SCRYPTED_PLUGIN_VOLUME;
+        return base ? join(base, "events") : "";
     }
 
     async canMixin(type: ScryptedDeviceType, interfaces: string[]): Promise<string[]> {

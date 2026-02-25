@@ -14,6 +14,7 @@ import {
 } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import {
+  access,
   mkdir,
   readdir,
   readFile,
@@ -22,7 +23,7 @@ import {
   writeFile,
 } from "fs/promises";
 import { sortBy } from "lodash";
-import { join } from "path";
+import { dirname, join } from "path";
 import {
   getBaseLogger,
   logLevelSetting,
@@ -55,7 +56,6 @@ export class FrigateBridgeEventsRecorderMixin
   });
 
   logger: Console;
-  private eventsDbPath: string;
   private eventsBuffer: RecordedEvent[] = [];
   private bufferWriteInterval: NodeJS.Timeout | null = null;
   private cleanupInterval: NodeJS.Timeout | null = null;
@@ -90,11 +90,9 @@ export class FrigateBridgeEventsRecorderMixin
       logger,
     });
 
-    // Initialize events DB path using SCRYPTED_PLUGIN_VOLUME and camera ID
-    const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
-    this.eventsDbPath = join(basePath, "events", this.id);
+    // Ensure events storage directory exists
     try {
-      await mkdir(this.eventsDbPath, { recursive: true });
+      await this.ensureDir(this.getEventsDbPath());
     } catch (e) {
       logger.error("Error creating events DB directory", e);
     }
@@ -202,19 +200,16 @@ export class FrigateBridgeEventsRecorderMixin
     try {
       const logger = this.getLogger();
 
-      if (!this.eventsDbPath) {
-        const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
-        if (!basePath) {
-          logger.error(
-            "SCRYPTED_PLUGIN_VOLUME is not set; cannot flush events buffer",
+      const eventsDbPath = this.getEventsDbPath();
+      if (!eventsDbPath) {
+        logger.error(
+            "Events storage path is not set (set Events storage directory on the Frigate Events Recorder device or SCRYPTED_PLUGIN_VOLUME); cannot flush events buffer",
           );
-          return;
-        }
-        this.eventsDbPath = join(basePath, "events", this.id);
+        return;
       }
 
       // Ensure directory exists in case it was removed.
-      await mkdir(this.eventsDbPath, { recursive: true });
+      await this.ensureDir(eventsDbPath);
 
       const eventsToWrite = [...this.eventsBuffer];
       this.eventsBuffer = [];
@@ -240,6 +235,10 @@ export class FrigateBridgeEventsRecorderMixin
           filePath = this.getEventsFilePath(new Date(dateStr));
           // Use a unique tmp name to avoid collisions across overlapping flushes.
           tempFilePath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+
+          // Ensure the parent directory still exists (it may have been
+          // removed externally between the initial ensureDir and this point).
+          await this.ensureDir(dirname(filePath));
 
           // Load existing events
           const existingEvents = await this.loadEventsFromFile(filePath);
@@ -295,9 +294,28 @@ export class FrigateBridgeEventsRecorderMixin
     }
   }
 
+  /** Directory for this camera's event JSON files: parent base path + this camera id. */
+  private getEventsDbPath(): string {
+    const base = this.plugin.getEventsStorageBasePath();
+    if (!base) return "";
+    return join(base, this.id);
+  }
+
+  private async ensureDir(path: string): Promise<void> {
+    try {
+      await access(path);
+    } catch (e: any) {
+      if (e?.code === "ENOENT") {
+        await mkdir(path, { recursive: true });
+      } else {
+        throw e;
+      }
+    }
+  }
+
   private getEventsFilePath(date: Date): string {
     const dateStr = date.toISOString().split("T")[0]; // YYYY-MM-DD
-    return join(this.eventsDbPath, `${dateStr}.json`);
+    return join(this.getEventsDbPath(), `${dateStr}.json`);
   }
 
   private async loadEventsFromFile(filePath: string): Promise<RecordedEvent[]> {
@@ -316,7 +334,7 @@ export class FrigateBridgeEventsRecorderMixin
     const tempFilePath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
 
     try {
-      await mkdir(this.eventsDbPath, { recursive: true });
+      await this.ensureDir(this.getEventsDbPath());
       const existingEvents = await this.loadEventsFromFile(filePath);
 
       const eventId = event.details?.eventId;
@@ -375,7 +393,10 @@ export class FrigateBridgeEventsRecorderMixin
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
     try {
-      const files = await readdir(this.eventsDbPath);
+      const eventsDbPath = this.getEventsDbPath();
+      if (!eventsDbPath) return;
+
+      const files = await readdir(eventsDbPath);
       const logger = this.getLogger();
 
       for (const file of files) {
@@ -386,7 +407,7 @@ export class FrigateBridgeEventsRecorderMixin
         const fileDate = new Date(dateStr);
 
         if (fileDate < cutoffDate) {
-          const filePath = join(this.eventsDbPath, file);
+          const filePath = join(eventsDbPath, file);
           await unlink(filePath);
           logger.debug(`Deleted old events file: ${file}`);
         }
