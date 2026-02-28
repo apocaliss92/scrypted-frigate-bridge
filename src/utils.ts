@@ -636,33 +636,54 @@ export const initFrigateMixin = async (props: {
     }
 }
 
+/** Frigate mixin native IDs that must come after Scrypted NVR. */
+const frigateMixinNativeIds = [
+    objectDetectorNativeId,
+    motionDetectorNativeId,
+    audioDetectorNativeId,
+    videoclipsNativeId,
+    eventsRecorderNativeId,
+];
+
+/**
+ * Ensures Scrypted NVR (and NVR object detector) always comes before all Frigate extensions.
+ * Reorders mixins so NVR is placed before the first Frigate mixin.
+ */
 export const ensureMixinsOrder = (props: {
     mixin: SettingsMixinDeviceBase<any>,
     plugin: FrigateBridgePlugin,
     logger: Console,
 }) => {
-    const { mixin, logger, plugin } = props;
-    const nvrObjectDetector = sdk.systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
-    const basicObjectDetector = sdk.systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
-    let shouldBeMoved = false;
-    const thisMixinOrder = mixin.mixins.indexOf(plugin.id);
+    const { mixin, logger } = props;
+    const nvrId = sdk.systemManager.getDeviceById('@scrypted/nvr')?.id;
+    const nvrObjectDetectorId = sdk.systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
+    const nvrIds = [nvrObjectDetectorId, nvrId].filter(Boolean) as string[];
 
-    if (nvrObjectDetector && mixin.mixins.indexOf(nvrObjectDetector) > thisMixinOrder) {
-        shouldBeMoved = true
-    }
-    if (basicObjectDetector && mixin.mixins.indexOf(basicObjectDetector) > thisMixinOrder) {
-        shouldBeMoved = true
-    }
+    const frigateMixinIds = frigateMixinNativeIds
+        .map((nativeId) => sdk.systemManager.getDeviceById(pluginId, nativeId)?.id)
+        .filter(Boolean) as string[];
 
-    if (shouldBeMoved) {
-        logger.log('This plugin needs other object detection plugins to come before, fixing');
-        setTimeout(() => {
-            const currentMixins = mixin.mixins.filter(m => m !== plugin.id);
-            currentMixins.push(plugin.id);
-            const thisDevice = sdk.systemManager.getDeviceById(mixin.id);
-            thisDevice.setMixins(currentMixins);
-        }, 1000);
-    }
+    const current = [...mixin.mixins];
+    const presentNvrIds = nvrIds.filter((id) => current.includes(id));
+    const presentFrigateIds = frigateMixinIds.filter((id) => current.includes(id));
+    if (!presentNvrIds.length || !presentFrigateIds.length) return;
+
+    const firstFrigateIndex = Math.min(...presentFrigateIds.map((id) => current.indexOf(id)));
+    const firstNvrIndex = Math.min(...presentNvrIds.map((id) => current.indexOf(id)));
+    if (firstNvrIndex < firstFrigateIndex) return;
+
+    logger.log('Moving Scrypted NVR before Frigate extensions');
+    const withoutNvr = current.filter((m) => !presentNvrIds.includes(m));
+    const insertIndex = Math.min(...presentFrigateIds.map((id) => withoutNvr.indexOf(id)));
+    const reordered = [
+        ...withoutNvr.slice(0, insertIndex),
+        ...presentNvrIds,
+        ...withoutNvr.slice(insertIndex),
+    ];
+    setTimeout(() => {
+        const thisDevice = sdk.systemManager.getDeviceById(mixin.id);
+        thisDevice?.setMixins(reordered);
+    }, 1000);
 }
 
 export const parseActivePayload = (payload: any): boolean | undefined => {

@@ -55,13 +55,13 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
             if (eventType === 'motion') {
                 // frigate/salone/motion
                 logger.info(`Motion message received ${messageTopic} ${message}: ${camera}`);
-                const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                const foundMixins = Object.values(this.currentMixinsMap).filter(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
 
                     return cameraName === camera;
                 });
 
-                if (foundMixin) {
+                for (const foundMixin of foundMixins) {
                     const { reportMotionOnlyOnDetection } = foundMixin.storageSettings.values;
 
                     if (!reportMotionOnlyOnDetection) {

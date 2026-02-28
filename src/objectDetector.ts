@@ -138,27 +138,25 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                 const obj: FrigateEvent = JSON.parse(message.toString());
                 logger.debug(`Event received: ${maskForLog(obj)}`);
 
-                const foundMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                const foundMixins = Object.values(this.currentMixinsMap).filter(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
 
                     return cameraName === obj.after.camera;
                 });
 
-                if (!shouldForwardByZonePrefilter(foundMixin, obj)) {
-                    logger.debug(`Event skipped by zone prefilter: ${JSON.stringify({
-                        camera: obj?.after?.camera,
-                        zones: getEventZones(obj),
-                    })}`);
-                    return;
+                if (!foundMixins.length) {
+                    logger.debug(
+                        `Event for camera "${obj.after.camera}" has no matching Object Detector mixin (cameraName not configured for any camera)`,
+                    );
                 }
 
-                const foundMotionMixin = Object.values(this.plugin.motionDetectorDevice?.currentMixinsMap).find(mixin => {
+                const foundMotionMixins = Object.values(this.plugin.motionDetectorDevice?.currentMixinsMap ?? {}).filter(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
 
                     return cameraName === obj.after.camera;
                 });
 
-                if (foundMotionMixin) {
+                for (const foundMotionMixin of foundMotionMixins) {
                     const { reportMotionOnlyOnDetection } = foundMotionMixin.storageSettings.values;
 
                     if (reportMotionOnlyOnDetection) {
@@ -187,7 +185,14 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                     return;
                 }
 
-                if (foundMixin) {
+                for (const foundMixin of foundMixins) {
+                    if (!shouldForwardByZonePrefilter(foundMixin, obj)) {
+                        logger.debug(`Event skipped by zone prefilter for mixin`, {
+                            camera: obj?.after?.camera,
+                            zones: getEventZones(obj),
+                        });
+                        continue;
+                    }
                     await foundMixin.onFrigateDetectionEvent(obj);
                 }
             }
@@ -209,17 +214,20 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
 
                 // If the first segment matches a configured camera name, treat it as a camera topic.
                 // Otherwise, treat it as a zone topic.
-                const cameraMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                const cameraMixins = Object.values(this.currentMixinsMap).filter(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
                     return cameraName === name;
                 });
 
-                if (cameraMixin) {
-                    cameraMixin.onFrigateCameraObjectCountsUpdate(objectName, { active: activeCount });
+                if (cameraMixins.length) {
+                    for (const cameraMixin of cameraMixins) {
+                        cameraMixin.onFrigateCameraObjectCountsUpdate(objectName, { active: activeCount });
+                    }
                     logger.log(`Camera object active updated: ${JSON.stringify({
                         cameraName: name,
                         objectName,
                         active: activeCount,
+                        mixinCount: cameraMixins.length,
                     })}`);
                 } else {
                     const zoneName = name;
@@ -261,17 +269,20 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                 if (totalCount === undefined)
                     return;
 
-                const cameraMixin = Object.values(this.currentMixinsMap).find(mixin => {
+                const cameraMixins = Object.values(this.currentMixinsMap).filter(mixin => {
                     const { cameraName } = mixin.storageSettings.values;
                     return cameraName === name;
                 });
 
-                if (cameraMixin) {
-                    cameraMixin.onFrigateCameraObjectCountsUpdate(objectName, { total: totalCount });
+                if (cameraMixins.length) {
+                    for (const cameraMixin of cameraMixins) {
+                        cameraMixin.onFrigateCameraObjectCountsUpdate(objectName, { total: totalCount });
+                    }
                     logger.debug(`Camera object total updated: ${JSON.stringify({
                         cameraName: name,
                         objectName,
                         total: totalCount,
+                        mixinCount: cameraMixins.length,
                     })}`);
                 } else {
                     const zoneName = name;

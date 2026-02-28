@@ -640,13 +640,24 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
         const logger = this.getLogger();
 
-        if (
-            !eventTypes?.length ||
-            !labels?.length ||
-            !labels.includes(event.after.label) ||
-            !eventTypes.includes(event.type)) {
-
-            logger.debug('Event skipped', maskForLog(event));
+        if (!eventTypes?.length) {
+            logger.debug(`Event skipped (camera=${cameraName}): eventTypes not configured`);
+            return;
+        }
+        if (!labels?.length) {
+            logger.debug(`Event skipped (camera=${cameraName}): labels not configured`);
+            return;
+        }
+        if (!labels.includes(event.after.label)) {
+            logger.debug(
+                `Event skipped (camera=${cameraName}): label "${event.after.label}" not in configured labels [${labels.join(", ")}]`,
+            );
+            return;
+        }
+        if (!eventTypes.includes(event.type)) {
+            logger.debug(
+                `Event skipped (camera=${cameraName}): type "${event.type}" not in eventTypes [${eventTypes.join(", ")}]`,
+            );
             return;
         }
 
@@ -745,9 +756,10 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
             logger.log(`Detection event forwarded, ${JSON.stringify({
                 eventLabel,
                 subLabel,
+                camera: cameraName,
             })}`);
         }
-        logger.info(maskForLog(event));
+        logger.debug(`Detection forwarded to onDeviceEvent`, maskForLog({ detectionId, eventLabel, camera: cameraName }));
         this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
     }
 

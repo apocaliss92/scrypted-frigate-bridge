@@ -166,10 +166,13 @@ export class FrigateBridgeEventsRecorderMixin
         });
 
         const logger = this.getLogger();
+        logger.debug(
+          `Event received: interface=ObjectDetector eventId=${eventDetails.eventId} detections=${detections.length}`,
+        );
         // Only save if there are detections with moving: true
         if (detections.length === 0) {
           logger.debug(
-            `Event received: interface=ObjectDetector eventId=${eventDetails.eventId} -> skipped (no moving detections)`,
+            `Event: eventId=${eventDetails.eventId} -> (no moving detections)`,
           );
           return;
         }
@@ -177,7 +180,7 @@ export class FrigateBridgeEventsRecorderMixin
         const recordedEvent: RecordedEvent = {
           details: {
             eventId: eventDetails.eventId,
-            eventInterface: "ObjectDetector",
+            eventInterface: ScryptedInterface.ObjectDetector,
             eventTime: now,
           },
           data: {
