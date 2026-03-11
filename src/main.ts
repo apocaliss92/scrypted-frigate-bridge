@@ -9,6 +9,7 @@ import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeAudioDetector from "./audioDetector";
 import FrigateBridgeCamera from "./camera";
 import type { FrigateConfig, FrigateRawConfig } from "./frigateConfigTypes";
+import { normalizeFrigateConfigCameras } from "./frigateConfigTypes";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
 import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, DetectionData, eventsRecorderNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
@@ -267,7 +268,9 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             headers: this.getAuthHeaders(),
         });
 
-        this.config = configsResponse.data;
+        this.config = configsResponse.data
+            ? normalizeFrigateConfigCameras(configsResponse.data)
+            : configsResponse.data;
         this.lastConfigFetch = Date.now();
 
         return this.config;
