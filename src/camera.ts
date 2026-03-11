@@ -325,6 +325,11 @@ class FrigateBridgeCamera extends RtspSmartCamera {
 
         const inputs = cameraConfig?.ffmpeg?.inputs;
 
+        if (!Array.isArray(inputs) || !inputs.length) {
+            logger.debug(`No ffmpeg inputs found for camera ${this.cameraName} in Frigate config`);
+            return configuredStreams;
+        }
+
         inputs.forEach((input, index) => {
             let streamName = `Stream ${index + 1}`;
             const streamId = `stream_${index + 1}`;
@@ -514,7 +519,8 @@ class FrigateBridgeCamera extends RtspSmartCamera {
 
     async takeSmartCameraPicture(options?: PictureOptions): Promise<MediaObject> {
         const imageUrl = `${this.getSnapshotUrl()}?ts=${Date.now()}`;
-        const response = await fetch(imageUrl);
+        const authHeaders = this.provider.getAuthHeaders();
+        const response = await fetch(imageUrl, authHeaders ? { headers: authHeaders } : undefined);
         if (!response.ok) {
             throw new Error(`Failed to fetch snapshot: ${response.status} ${response.statusText}`);
         }

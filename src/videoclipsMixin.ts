@@ -216,9 +216,10 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             return mo;
         } catch {
             try {
-                return this.mixinDevice.getVideoClip(videoId);
+                return await this.mixinDevice.getVideoClip(videoId);
             } catch (e) {
                 logger.error('Error in getVideoClip', videoId, e);
+                return undefined;
             }
         }
     }
