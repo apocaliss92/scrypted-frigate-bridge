@@ -392,15 +392,17 @@ export const baseFrigateApi = <T = any>(props: {
     params?: any;
     body?: any;
     method?: Method;
+    headers?: Record<string, string>;
 }) => {
-    const { apiUrl, service, params, body, method = 'GET' } = props;
+    const { apiUrl, service, params, body, method = 'GET', headers } = props;
 
     const url = `${apiUrl}/${service}`;
     return axios.request<T>({
         method,
         url: url.toString(),
         params,
-        data: body
+        data: body,
+        headers,
     })
 }
 

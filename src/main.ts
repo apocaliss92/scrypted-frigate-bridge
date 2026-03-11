@@ -9,6 +9,7 @@ import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeAudioDetector from "./audioDetector";
 import FrigateBridgeCamera from "./camera";
 import type { FrigateConfig, FrigateRawConfig } from "./frigateConfigTypes";
+import { normalizeFrigateConfigCameras } from "./frigateConfigTypes";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
 import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, DetectionData, eventsRecorderNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
@@ -34,6 +35,7 @@ const getVodUrlForEvent = async (options: {
     cacheKey: string;
     serverUrl: string;
     eventId: string;
+    headers?: Record<string, string>;
 }): Promise<string> => {
     const now = Date.now();
     const cached = vodUrlCache.get(options.cacheKey);
@@ -49,6 +51,7 @@ const getVodUrlForEvent = async (options: {
             const eventResponse = await axios.get<DetectionData>(eventUrl, {
                 httpAgent: httpKeepAliveAgent,
                 httpsAgent: httpsKeepAliveAgent,
+                headers: options.headers,
             });
             const event = eventResponse.data;
             const frigateOrigin = new URL(options.serverUrl).origin;
@@ -68,6 +71,7 @@ const getVodUrlForEvent = async (options: {
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
+    'frigateApiToken' |
     'baseGo2rtcUrl' |
     'objectLabels' |
     'audioLabels' |
@@ -96,6 +100,12 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             title: 'Frigate server API URL',
             description: 'URL to the Frigate server. Example: http://192.168.1.100:5000/api',
             type: 'string',
+            onPut: async () => this.initData()
+        },
+        frigateApiToken: {
+            title: 'Frigate API token',
+            description: 'Bearer token for Frigate authentication (required when using the external port 8971 or when auth is enabled). Generate in the Frigate UI under Settings → Users.',
+            type: 'password',
             onPut: async () => this.initData()
         },
         baseGo2rtcUrl: {
@@ -236,6 +246,12 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         return this.logger;
     }
 
+    getAuthHeaders(): Record<string, string> | undefined {
+        const token = this.storageSettings.values.frigateApiToken as string | undefined;
+        if (!token) return undefined;
+        return { Authorization: `Bearer ${token}` };
+    }
+
     async getConfiguration(force?: boolean): Promise<FrigateConfig | undefined> {
         const logger = this.getLogger();
         const now = Date.now();
@@ -249,9 +265,12 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         const configsResponse = await baseFrigateApi<FrigateConfig>({
             apiUrl: this.storageSettings.values.serverUrl,
             service: 'config',
+            headers: this.getAuthHeaders(),
         });
 
-        this.config = configsResponse.data;
+        this.config = configsResponse.data
+            ? normalizeFrigateConfigCameras(configsResponse.data)
+            : configsResponse.data;
         this.lastConfigFetch = Date.now();
 
         return this.config;
@@ -268,6 +287,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         const res = await baseFrigateApi<string>({
             apiUrl: this.storageSettings.values.serverUrl,
             service: 'config/raw',
+            headers: this.getAuthHeaders(),
         });
 
         const raw = res?.data;
@@ -310,9 +330,10 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             const res = await baseFrigateApi({
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'labels',
+                headers: this.getAuthHeaders(),
             });
 
-            const labels = res.data as string[];
+            const labels = Array.isArray(res.data) ? res.data as string[] : [];
             const audioLabels = labels.filter(isAudioLabel);
             const objectLabels = labels.filter(isObjectLabel);
             logger.log(`Labels found: ${JSON.stringify({
@@ -345,9 +366,13 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             const facesResponse = await baseFrigateApi({
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'faces',
+                headers: this.getAuthHeaders(),
             });
 
-            const faces = Object.keys(facesResponse.data).filter(face => face !== 'train');
+            const facesData = facesResponse.data && typeof facesResponse.data === 'object' && !Array.isArray(facesResponse.data)
+                ? facesResponse.data as Record<string, unknown>
+                : {};
+            const faces = Object.keys(facesData).filter(face => face !== 'train');
             logger.log(`Faces found: ${JSON.stringify(faces)}`);
             this.storageSettings.values.faces = faces;
 
@@ -483,6 +508,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                         cacheKey: `${deviceId}:${eventId}`,
                         serverUrl,
                         eventId,
+                        headers: this.getAuthHeaders(),
                     });
 
                     const sendVideo = async () => {
@@ -510,6 +536,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                     const { thumbnailUrl } = dev.getVideoclipUrls(eventId);
                     const jpeg = await axios.get(thumbnailUrl, {
                         responseType: "arraybuffer",
+                        headers: this.getAuthHeaders(),
                     });
 
                     devConsole.log(`Fetching thumbnail from ${thumbnailUrl}`);
@@ -560,6 +587,11 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         const highResStream = streams.find(stream => stream.destinations.includes('local'));
         const lowResStream = streams.find(stream => stream.destinations.includes('low-resolution'));
 
+        if (!highResStream || !lowResStream) {
+            logger.log('Could not find high/low resolution streams on the selected camera. Make sure the camera has streams with "local" and "low-resolution" destinations configured.');
+            return;
+        }
+
         const restreamHighStreamSetting = settings.find(setting =>
             setting.key === 'prebuffer:rtspRebroadcastUrl' &&
             setting.subgroup === `Stream: ${highResStream.name}`
@@ -571,17 +603,17 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint();
         const hostname = new URL(localEndpoint).hostname;
-        const highResUrl = exportWithRebroadcast ? restreamHighStreamSetting?.value.toString().replace(
+        const highResUrl = exportWithRebroadcast ? restreamHighStreamSetting?.value?.toString()?.replace(
             'localhost', hostname
         ) : (highResStream as any).url
-        const lowResUrl = exportWithRebroadcast ? restreamLowStreamSetting?.value.toString().replace(
+        const lowResUrl = exportWithRebroadcast ? restreamLowStreamSetting?.value?.toString()?.replace(
             'localhost', hostname
         ) : (lowResStream as any).url;
 
-        const highHwacclArgs = highResStream.video.codec === 'h265' ?
+        const highHwacclArgs = highResStream.video?.codec === 'h265' ?
             'preset-intel-qsv-h265' :
             'preset-intel-qsv-h264';
-        const lowHwacclArgs = lowResStream.video.codec === 'h265' ?
+        const lowHwacclArgs = lowResStream.video?.codec === 'h265' ?
             'preset-intel-qsv-h265' :
             'preset-intel-qsv-h264';
 

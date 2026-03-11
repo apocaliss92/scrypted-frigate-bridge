@@ -359,45 +359,6 @@ export class FrigateBridgeEventsRecorderMixin
     }
   }
 
-  private async saveEventToFile(event: RecordedEvent): Promise<void> {
-    const eventDate = new Date(event.details?.eventTime || Date.now());
-    const filePath = this.getEventsFilePath(eventDate);
-    const tempFilePath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-
-    try {
-      await this.ensureDir(this.getEventsDbPath());
-      const existingEvents = await this.loadEventsFromFile(filePath);
-
-      const eventId = event.details?.eventId;
-      if (
-        eventId &&
-        !existingEvents.find((e: any) => e.details?.eventId === eventId)
-      ) {
-        existingEvents.push(event);
-
-        // Sort by eventTime
-        const sorted = sortBy(
-          existingEvents,
-          (e: any) => e.details?.eventTime || 0,
-        );
-
-        // Write to temporary file first (atomic write)
-        await writeFile(tempFilePath, JSON.stringify(sorted, null, 2), "utf-8");
-
-        // Rename temp file to final file (atomic operation)
-        await rename(tempFilePath, filePath);
-      }
-    } catch (e) {
-      this.getLogger().error("Error saving event to file", e);
-      // Try to clean up temp file if it exists
-      try {
-        await unlink(tempFilePath);
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
-    }
-  }
-
   private async loadEventsFromDateRange(
     startDate: Date,
     endDate: Date,

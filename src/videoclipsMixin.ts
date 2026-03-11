@@ -131,21 +131,18 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
         try {
             const service = `events`;
 
-            const params = {
+            const params: Record<string, any> = {
                 camera: cameraName,
-                after: startTime / 1000,
-                before: endTime / 1000,
                 limit: count || 10000,
-                // has_clip: true,
-                // has_snapshot: true,
-                // in_progress: false,
-                // include_thumbnails: false,
+                ...(startTime != null ? { after: startTime / 1000 } : {}),
+                ...(endTime != null ? { before: endTime / 1000 } : {}),
             };
 
             const res = await baseFrigateApi({
                 apiUrl: this.plugin.plugin.storageSettings.values.serverUrl,
                 service,
-                params
+                params,
+                headers: this.plugin.plugin.getAuthHeaders(),
             });
 
             const events = res.data as FrigateVideoClip[];
@@ -201,7 +198,8 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             logger.log(`Fetching videoId ${videoId} from URL: ${maskForLog(videoUrl)}`);
             await axios.get(videoUrl, {
                 headers: {
-                    Range: "bytes=0-99"
+                    Range: "bytes=0-99",
+                    ...this.plugin.plugin.getAuthHeaders(),
                 },
                 responseType: "arraybuffer",
             });
@@ -214,9 +212,10 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             return mo;
         } catch {
             try {
-                return this.mixinDevice.getVideoClip(videoId);
+                return await this.mixinDevice.getVideoClip(videoId);
             } catch (e) {
                 logger.error('Error in getVideoClip', videoId, e);
+                return undefined;
             }
         }
     }
@@ -229,6 +228,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             logger.info(`Fetching thumbnail from URL: ${maskForLog(thumbnailUrl)}`);
             const jpeg = await axios.get(thumbnailUrl, {
                 responseType: "arraybuffer",
+                headers: this.plugin.plugin.getAuthHeaders(),
             });
 
             const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
@@ -236,7 +236,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             return mo;
         } catch {
             try {
-                return this.mixinDevice.getVideoClipThumbnail(thumbnailId, options);
+                return await this.mixinDevice.getVideoClipThumbnail(thumbnailId, options);
             } catch (e) {
                 logger.error('Error in getVideoClipThumbnail', thumbnailId, e);
             }

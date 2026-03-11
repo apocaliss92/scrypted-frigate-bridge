@@ -150,7 +150,7 @@ export interface FrigateConfig {
     model?: Record<string, unknown>;
     genai?: Record<string, unknown>;
 
-    cameras?: Record<string, FrigateCameraConfig>;
+    cameras?: Record<string, FrigateCameraConfig> | Array<FrigateCameraConfig>;
 
     birdseye?: Record<string, unknown>;
     audio?: Record<string, unknown>;
@@ -175,3 +175,24 @@ export interface FrigateConfig {
 
 /** Parsed output of Frigate `/config/raw` (YAML), shape is very close to `/config` but often less enriched. */
 export type FrigateRawConfig = FrigateConfig;
+
+/**
+ * Frigate 0.17.0 changed the `/api/config` response so that `cameras` is an
+ * array of camera objects (each with a `name` field) instead of a plain
+ * object keyed by camera name.  This function normalises both formats into
+ * the legacy `Record<string, FrigateCameraConfig>` shape so that all
+ * downstream code that uses `config.cameras[cameraName]` or
+ * `Object.keys(config.cameras)` continues to work unchanged.
+ */
+export function normalizeFrigateConfigCameras<T extends FrigateConfig>(config: T): T {
+    if (!config || !Array.isArray(config.cameras)) {
+        return config;
+    }
+    const camerasRecord: Record<string, FrigateCameraConfig> = {};
+    for (const cam of config.cameras as Array<FrigateCameraConfig>) {
+        if (cam?.name) {
+            camerasRecord[cam.name] = cam;
+        }
+    }
+    return { ...config, cameras: camerasRecord };
+}

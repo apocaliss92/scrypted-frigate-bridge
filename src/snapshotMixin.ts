@@ -34,11 +34,11 @@ export class FrigateBridgeSnapshotMixin extends SettingsMixinDeviceBase<any> imp
     }
 
     takePicture(options?: RequestPictureOptions): Promise<MediaObject> {
-        throw new Error("Method not implemented.");
+        return this.mixinDevice.takePicture(options);
     }
 
     getPictureOptions(): Promise<ResponsePictureOptions[]> {
-        throw new Error("Method not implemented.");
+        return this.mixinDevice.getPictureOptions();
     }
 
     async init() {

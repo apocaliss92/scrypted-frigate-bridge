@@ -70,7 +70,7 @@ export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any
 
         const url = `${this.plugin.plugin.storageSettings.values.serverUrl}/events/${detectionId}/snapshot.jpg`;
         try {
-            const jpeg = await axios.get(url, { responseType: "arraybuffer" });
+            const jpeg = await axios.get(url, { responseType: "arraybuffer", headers: this.plugin.plugin.getAuthHeaders() });
             const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
             logger.info(`Frigate audio event ${detectionId} found`);
             return mo;
