@@ -34,6 +34,7 @@ const getVodUrlForEvent = async (options: {
     cacheKey: string;
     serverUrl: string;
     eventId: string;
+    headers?: Record<string, string>;
 }): Promise<string> => {
     const now = Date.now();
     const cached = vodUrlCache.get(options.cacheKey);
@@ -49,6 +50,7 @@ const getVodUrlForEvent = async (options: {
             const eventResponse = await axios.get<DetectionData>(eventUrl, {
                 httpAgent: httpKeepAliveAgent,
                 httpsAgent: httpsKeepAliveAgent,
+                headers: options.headers,
             });
             const event = eventResponse.data;
             const frigateOrigin = new URL(options.serverUrl).origin;
@@ -68,6 +70,7 @@ const getVodUrlForEvent = async (options: {
 
 type StorageKey = BaseSettingsKey |
     'serverUrl' |
+    'frigateApiToken' |
     'baseGo2rtcUrl' |
     'objectLabels' |
     'audioLabels' |
@@ -96,6 +99,12 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             title: 'Frigate server API URL',
             description: 'URL to the Frigate server. Example: http://192.168.1.100:5000/api',
             type: 'string',
+            onPut: async () => this.initData()
+        },
+        frigateApiToken: {
+            title: 'Frigate API token',
+            description: 'Bearer token for Frigate authentication (required when using the external port 8971 or when auth is enabled). Generate in the Frigate UI under Settings → Users.',
+            type: 'password',
             onPut: async () => this.initData()
         },
         baseGo2rtcUrl: {
@@ -236,6 +245,12 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         return this.logger;
     }
 
+    getAuthHeaders(): Record<string, string> | undefined {
+        const token = this.storageSettings.values.frigateApiToken as string | undefined;
+        if (!token) return undefined;
+        return { Authorization: `Bearer ${token}` };
+    }
+
     async getConfiguration(force?: boolean): Promise<FrigateConfig | undefined> {
         const logger = this.getLogger();
         const now = Date.now();
@@ -249,6 +264,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         const configsResponse = await baseFrigateApi<FrigateConfig>({
             apiUrl: this.storageSettings.values.serverUrl,
             service: 'config',
+            headers: this.getAuthHeaders(),
         });
 
         this.config = configsResponse.data;
@@ -268,6 +284,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         const res = await baseFrigateApi<string>({
             apiUrl: this.storageSettings.values.serverUrl,
             service: 'config/raw',
+            headers: this.getAuthHeaders(),
         });
 
         const raw = res?.data;
@@ -310,9 +327,10 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             const res = await baseFrigateApi({
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'labels',
+                headers: this.getAuthHeaders(),
             });
 
-            const labels = res.data as string[];
+            const labels = Array.isArray(res.data) ? res.data as string[] : [];
             const audioLabels = labels.filter(isAudioLabel);
             const objectLabels = labels.filter(isObjectLabel);
             logger.log(`Labels found: ${JSON.stringify({
@@ -345,9 +363,13 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             const facesResponse = await baseFrigateApi({
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'faces',
+                headers: this.getAuthHeaders(),
             });
 
-            const faces = Object.keys(facesResponse.data).filter(face => face !== 'train');
+            const facesData = facesResponse.data && typeof facesResponse.data === 'object' && !Array.isArray(facesResponse.data)
+                ? facesResponse.data as Record<string, unknown>
+                : {};
+            const faces = Object.keys(facesData).filter(face => face !== 'train');
             logger.log(`Faces found: ${JSON.stringify(faces)}`);
             this.storageSettings.values.faces = faces;
 
@@ -483,6 +505,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                         cacheKey: `${deviceId}:${eventId}`,
                         serverUrl,
                         eventId,
+                        headers: this.getAuthHeaders(),
                     });
 
                     const sendVideo = async () => {
@@ -510,6 +533,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                     const { thumbnailUrl } = dev.getVideoclipUrls(eventId);
                     const jpeg = await axios.get(thumbnailUrl, {
                         responseType: "arraybuffer",
+                        headers: this.getAuthHeaders(),
                     });
 
                     devConsole.log(`Fetching thumbnail from ${thumbnailUrl}`);

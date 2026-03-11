@@ -173,6 +173,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
             params: {
                 paths: url,
             },
+            headers: this.provider.getAuthHeaders(),
         });
 
         let data = res?.data;

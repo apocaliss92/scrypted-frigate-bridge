@@ -145,7 +145,8 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             const res = await baseFrigateApi({
                 apiUrl: this.plugin.plugin.storageSettings.values.serverUrl,
                 service,
-                params
+                params,
+                headers: this.plugin.plugin.getAuthHeaders(),
             });
 
             const events = res.data as FrigateVideoClip[];
@@ -201,7 +202,8 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             logger.log(`Fetching videoId ${videoId} from URL: ${maskForLog(videoUrl)}`);
             await axios.get(videoUrl, {
                 headers: {
-                    Range: "bytes=0-99"
+                    Range: "bytes=0-99",
+                    ...this.plugin.plugin.getAuthHeaders(),
                 },
                 responseType: "arraybuffer",
             });
@@ -229,6 +231,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             logger.info(`Fetching thumbnail from URL: ${maskForLog(thumbnailUrl)}`);
             const jpeg = await axios.get(thumbnailUrl, {
                 responseType: "arraybuffer",
+                headers: this.plugin.plugin.getAuthHeaders(),
             });
 
             const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');

@@ -522,7 +522,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
         const inFlight = (async () => {
             try {
-                const jpeg = await axios.get(url, { responseType: "arraybuffer" });
+                const jpeg = await axios.get(url, { responseType: "arraybuffer", headers: this.plugin.plugin.getAuthHeaders() });
                 const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
                 logger.info(`Frigate object event ${detectionId} found`);
                 return mo;
