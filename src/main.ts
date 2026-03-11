@@ -587,6 +587,11 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
         const highResStream = streams.find(stream => stream.destinations.includes('local'));
         const lowResStream = streams.find(stream => stream.destinations.includes('low-resolution'));
 
+        if (!highResStream || !lowResStream) {
+            logger.log('Could not find high/low resolution streams on the selected camera. Make sure the camera has streams with "local" and "low-resolution" destinations configured.');
+            return;
+        }
+
         const restreamHighStreamSetting = settings.find(setting =>
             setting.key === 'prebuffer:rtspRebroadcastUrl' &&
             setting.subgroup === `Stream: ${highResStream.name}`
@@ -598,17 +603,17 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
 
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint();
         const hostname = new URL(localEndpoint).hostname;
-        const highResUrl = exportWithRebroadcast ? restreamHighStreamSetting?.value.toString().replace(
+        const highResUrl = exportWithRebroadcast ? restreamHighStreamSetting?.value?.toString()?.replace(
             'localhost', hostname
         ) : (highResStream as any).url
-        const lowResUrl = exportWithRebroadcast ? restreamLowStreamSetting?.value.toString().replace(
+        const lowResUrl = exportWithRebroadcast ? restreamLowStreamSetting?.value?.toString()?.replace(
             'localhost', hostname
         ) : (lowResStream as any).url;
 
-        const highHwacclArgs = highResStream.video.codec === 'h265' ?
+        const highHwacclArgs = highResStream.video?.codec === 'h265' ?
             'preset-intel-qsv-h265' :
             'preset-intel-qsv-h264';
-        const lowHwacclArgs = lowResStream.video.codec === 'h265' ?
+        const lowHwacclArgs = lowResStream.video?.codec === 'h265' ?
             'preset-intel-qsv-h265' :
             'preset-intel-qsv-h264';
 

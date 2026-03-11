@@ -131,15 +131,11 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
         try {
             const service = `events`;
 
-            const params = {
+            const params: Record<string, any> = {
                 camera: cameraName,
-                after: startTime / 1000,
-                before: endTime / 1000,
                 limit: count || 10000,
-                // has_clip: true,
-                // has_snapshot: true,
-                // in_progress: false,
-                // include_thumbnails: false,
+                ...(startTime != null ? { after: startTime / 1000 } : {}),
+                ...(endTime != null ? { before: endTime / 1000 } : {}),
             };
 
             const res = await baseFrigateApi({
@@ -240,7 +236,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             return mo;
         } catch {
             try {
-                return this.mixinDevice.getVideoClipThumbnail(thumbnailId, options);
+                return await this.mixinDevice.getVideoClipThumbnail(thumbnailId, options);
             } catch (e) {
                 logger.error('Error in getVideoClipThumbnail', thumbnailId, e);
             }
