@@ -7,7 +7,7 @@ import { detectionClassesDefaultMap, isAudioLabel, isObjectLabel } from "../../s
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { FrigateActiveTotalCounts } from "./mqttSettingsTypes";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { buildOccupancyZoneId, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, FrigateEvent, initFrigateMixin, maskForLog, pluginId } from "./utils";
+import { buildOccupancyZoneId, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, frigateHttpsAgent, FrigateEvent, initFrigateMixin, maskForLog, pluginId } from "./utils";
 
 export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, ObjectDetector, Sensors {
     storageSettings = new StorageSettings<string>(this, {
@@ -522,7 +522,7 @@ export class FrigateBridgeObjectDetectorMixin extends SettingsMixinDeviceBase<an
 
         const inFlight = (async () => {
             try {
-                const jpeg = await axios.get(url, { responseType: "arraybuffer", headers: this.plugin.plugin.getAuthHeaders() });
+                const jpeg = await axios.get(url, { responseType: "arraybuffer", headers: this.plugin.plugin.getAuthHeaders(), httpsAgent: frigateHttpsAgent });
                 const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
                 logger.info(`Frigate object event ${detectionId} found`);
                 return mo;

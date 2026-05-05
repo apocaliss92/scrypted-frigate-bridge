@@ -1,7 +1,6 @@
 import sdk, { AdoptDevice, Device, DeviceDiscovery, DeviceProvider, DiscoveredDevice, HttpRequest, HttpRequestHandler, HttpResponse, ScryptedDeviceType, ScryptedInterface, Settings, SettingValue, VideoCamera } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import http from 'http';
-import https from 'https';
 import { parse as parseYaml } from 'yaml';
 import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
@@ -12,7 +11,7 @@ import type { FrigateConfig, FrigateRawConfig } from "./frigateConfigTypes";
 import { normalizeFrigateConfigCameras } from "./frigateConfigTypes";
 import FrigateBridgeMotionDetector from "./motionDetector";
 import FrigateBridgeObjectDetector from "./objectDetector";
-import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, DetectionData, eventsRecorderNativeId, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
+import { audioDetectorNativeId, baseFrigateApi, birdseyeCameraNativeId, birdseyeStreamName, DetectionData, eventsRecorderNativeId, frigateHttpsAgent, importedCameraNativeIdPrefix, motionDetectorNativeId, objectDetectorNativeId, toSnakeCase, videoclipsNativeId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 import { FrigateBridgeVideoclipsMixin } from "./videoclipsMixin";
 import FrigateBridgeEventsRecorder from "./frigateEventsRecorder";
@@ -29,7 +28,6 @@ const vodUrlCache = new Map<string, VodUrlCacheEntry>();
 const VOD_URL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const httpKeepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: 64 });
-const httpsKeepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 64 });
 
 const getVodUrlForEvent = async (options: {
     cacheKey: string;
@@ -50,7 +48,7 @@ const getVodUrlForEvent = async (options: {
             const eventUrl = `${options.serverUrl}/events/${options.eventId}`;
             const eventResponse = await axios.get<DetectionData>(eventUrl, {
                 httpAgent: httpKeepAliveAgent,
-                httpsAgent: httpsKeepAliveAgent,
+                httpsAgent: frigateHttpsAgent,
                 headers: options.headers,
             });
             const event = eventResponse.data;
@@ -266,6 +264,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             apiUrl: this.storageSettings.values.serverUrl,
             service: 'config',
             headers: this.getAuthHeaders(),
+            httpsAgent: frigateHttpsAgent,
         });
 
         this.config = configsResponse.data
@@ -288,6 +287,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             apiUrl: this.storageSettings.values.serverUrl,
             service: 'config/raw',
             headers: this.getAuthHeaders(),
+            httpsAgent: frigateHttpsAgent,
         });
 
         const raw = res?.data;
@@ -331,6 +331,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'labels',
                 headers: this.getAuthHeaders(),
+                httpsAgent: frigateHttpsAgent,
             });
 
             const labels = Array.isArray(res.data) ? res.data as string[] : [];
@@ -367,6 +368,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'faces',
                 headers: this.getAuthHeaders(),
+                httpsAgent: frigateHttpsAgent,
             });
 
             const facesData = facesResponse.data && typeof facesResponse.data === 'object' && !Array.isArray(facesResponse.data)
@@ -537,6 +539,7 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                     const jpeg = await axios.get(thumbnailUrl, {
                         responseType: "arraybuffer",
                         headers: this.getAuthHeaders(),
+                        httpsAgent: frigateHttpsAgent,
                     });
 
                     devConsole.log(`Fetching thumbnail from ${thumbnailUrl}`);

@@ -4,7 +4,7 @@ import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/sr
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";
-import { audioDetectorNativeId, baseFrigateApi, birdseyeStreamName, convertSettingsToStorageSettings, ffprobeLocalJson, mapLimit, maskForLog, motionDetectorNativeId, objectDetectorNativeId, parseFraction, toArray, videoclipsNativeId } from "./utils";
+import { audioDetectorNativeId, baseFrigateApi, birdseyeStreamName, convertSettingsToStorageSettings, ffprobeLocalJson, frigateHttpsAgent, mapLimit, maskForLog, motionDetectorNativeId, objectDetectorNativeId, parseFraction, toArray, videoclipsNativeId } from "./utils";
 
 type FfprobeSummary = {
     url: string;
@@ -174,6 +174,7 @@ class FrigateBridgeCamera extends RtspSmartCamera {
                 paths: url,
             },
             headers: this.provider.getAuthHeaders(),
+            httpsAgent: frigateHttpsAgent,
         });
 
         let data = res?.data;
@@ -545,6 +546,10 @@ class FrigateBridgeCamera extends RtspSmartCamera {
     }
 
     async getConstructedVideoStreamOptions(): Promise<UrlMediaStreamOptions[]> {
+        if(this.videoStreamOptions) {
+            return this.videoStreamOptions;
+        }
+        
         const streams: UrlMediaStreamOptions[] = [];
 
         if (this.isBirdseyeCamera) {

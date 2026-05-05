@@ -28,7 +28,8 @@ const TRANSCODE_CACHE_TTL_MS = 2 * 60 * 1000;
 const transcodedCache = new Map<string, TranscodedCacheEntry>();
 
 const httpKeepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: 64 });
-const httpsKeepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 64 });
+// Accept self-signed certs so the authenticated Frigate `:8971` endpoint with the default cert works.
+const httpsKeepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 64, rejectUnauthorized: false });
 
 const getKeepAliveAgent = (url: string) => {
     try {

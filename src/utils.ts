@@ -4,6 +4,7 @@ import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettings
 import axios, { Method } from 'axios';
 import { execFile, spawn } from 'child_process';
 import { search } from 'fast-fuzzy';
+import https from 'https';
 import { keyBy } from 'lodash';
 import { promisify } from 'util';
 import { name } from '../package.json';
@@ -386,6 +387,16 @@ export const pointsToScryptedSvgPath = (points: Point2D[], options?: { close?: b
     return segments.join(' ');
 }
 
+/**
+ * Shared keep-alive https.Agent that accepts self-signed certificates, required when
+ * Frigate is reached on its authenticated `:8971` endpoint with the default self-signed cert.
+ */
+export const frigateHttpsAgent = new https.Agent({
+    keepAlive: true,
+    maxSockets: 64,
+    rejectUnauthorized: false,
+});
+
 export const baseFrigateApi = <T = any>(props: {
     apiUrl: string;
     service: string;
@@ -393,8 +404,9 @@ export const baseFrigateApi = <T = any>(props: {
     body?: any;
     method?: Method;
     headers?: Record<string, string>;
+    httpsAgent?: https.Agent;
 }) => {
-    const { apiUrl, service, params, body, method = 'GET', headers } = props;
+    const { apiUrl, service, params, body, method = 'GET', headers, httpsAgent } = props;
 
     const url = `${apiUrl}/${service}`;
     return axios.request<T>({
@@ -403,6 +415,7 @@ export const baseFrigateApi = <T = any>(props: {
         params,
         data: body,
         headers,
+        httpsAgent,
     })
 }
 

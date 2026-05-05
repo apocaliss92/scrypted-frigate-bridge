@@ -5,7 +5,7 @@ import axios from "axios";
 import { sortBy } from "lodash";
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { baseFrigateApi, FrigateVideoClip, initFrigateMixin, maskForLog, pluginId } from "./utils";
+import { baseFrigateApi, frigateHttpsAgent, FrigateVideoClip, initFrigateMixin, maskForLog, pluginId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 
 export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
@@ -143,6 +143,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                 service,
                 params,
                 headers: this.plugin.plugin.getAuthHeaders(),
+                httpsAgent: frigateHttpsAgent,
             });
 
             const events = res.data as FrigateVideoClip[];
@@ -202,6 +203,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
                     ...this.plugin.plugin.getAuthHeaders(),
                 },
                 responseType: "arraybuffer",
+                httpsAgent: frigateHttpsAgent,
             });
 
             const { videoclipUrl } = await this.getVideoclipWebhookUrls(videoId);
@@ -229,6 +231,7 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
             const jpeg = await axios.get(thumbnailUrl, {
                 responseType: "arraybuffer",
                 headers: this.plugin.plugin.getAuthHeaders(),
+                httpsAgent: frigateHttpsAgent,
             });
 
             const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');

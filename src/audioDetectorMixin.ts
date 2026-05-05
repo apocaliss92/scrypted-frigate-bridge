@@ -5,7 +5,7 @@ import axios from "axios";
 import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { DetectionClass } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeAudioDetector from "./audioDetector";
-import { AudioType, ensureMixinsOrder, initFrigateMixin, maskForLog, pluginId } from "./utils";
+import { AudioType, ensureMixinsOrder, frigateHttpsAgent, initFrigateMixin, maskForLog, pluginId } from "./utils";
 import { uniq } from "lodash";
 
 export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any> implements Settings, AudioVolumeControl, ObjectDetector {
@@ -70,7 +70,7 @@ export class FrigateBridgeAudioDetectorMixin extends SettingsMixinDeviceBase<any
 
         const url = `${this.plugin.plugin.storageSettings.values.serverUrl}/events/${detectionId}/snapshot.jpg`;
         try {
-            const jpeg = await axios.get(url, { responseType: "arraybuffer", headers: this.plugin.plugin.getAuthHeaders() });
+            const jpeg = await axios.get(url, { responseType: "arraybuffer", headers: this.plugin.plugin.getAuthHeaders(), httpsAgent: frigateHttpsAgent });
             const mo = await sdk.mediaManager.createMediaObject(jpeg.data, 'image/jpeg');
             logger.info(`Frigate audio event ${detectionId} found`);
             return mo;
