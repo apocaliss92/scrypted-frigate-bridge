@@ -1,3 +1,17 @@
+### v0.1.25 — MQTT credentials fallback + unmapped camera logging
+
+#### Bug fixes
+
+**Use plugin MQTT Host/Username/Password when the Scrypted MQTT plugin is not installed** (#20)
+
+The settings UI already shows Host / Username / Password when the MQTT plugin is missing, but the stored “Use MQTT plugin credentials” toggle (default `true`) still made `getMqttBasicClient` bail out without a client. Motion, object and audio detectors now fall back to the plugin’s own MQTT fields in that case.
+
+**Log once for Frigate cameras with no Scrypted mapping** (#21)
+
+When Frigate publishes events for a camera name that no Scrypted camera has set as “Frigate camera name”, the motion/object detectors now log a single clear line per Frigate camera (only while the extension is enabled on at least one camera), instead of dropping messages silently.
+
+---
+
 ### v0.1.22 — Frigate 0.15+ / 0.17.0 compatibility fixes
 
 #### Bug fixes
