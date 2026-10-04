@@ -3,7 +3,7 @@ import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-sett
 import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeMotionDetectorMixin } from "./motionDetectorMixin";
-import { FRIGATE_MOTION_DETECTOR_INTERFACE, motionTopic } from "./utils";
+import { FRIGATE_MOTION_DETECTOR_INTERFACE, logUnmappedCameraOnce, motionTopic } from "./utils";
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
 export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase implements MixinProvider {
@@ -17,6 +17,7 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
     plugin: FrigateBridgePlugin;
     logger: Console;
     mqttCb: MqttMessageCb;
+    unmappedCamerasLogged = new Set<string>();
     initializingMqtt = false;
     public mqttClient: MqttClient;
 
@@ -60,6 +61,10 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
 
                     return cameraName === camera;
                 });
+
+                if (!foundMixins.length) {
+                    logUnmappedCameraOnce({ logged: this.unmappedCamerasLogged, logger, camera, extension: 'Frigate Motion Detector' });
+                }
 
                 for (const foundMixin of foundMixins) {
                     const { reportMotionOnlyOnDetection } = foundMixin.storageSettings.values;
