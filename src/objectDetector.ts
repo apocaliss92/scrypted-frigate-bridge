@@ -4,7 +4,7 @@ import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypt
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
-import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, maskForLog, objectCountTopicWildcard, parseMqttCountPayload } from "./utils";
+import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, maskForLog, objectCountTopicWildcard, parseMqttCountPayload, shouldUseMqttPluginCredentials } from "./utils";
 
 export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -325,7 +325,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             try {
                 this.mqttClient = await getMqttBasicClient({
                     logger,
-                    useMqttPluginCredentials,
+                    useMqttPluginCredentials: shouldUseMqttPluginCredentials(useMqttPluginCredentials, logger),
                     mqttHost: this.plugin.storageSettings.getItem('mqttHost'),
                     mqttUsename: this.plugin.storageSettings.getItem('mqttUsename'),
                     mqttPassword: this.plugin.storageSettings.getItem('mqttPassword'),

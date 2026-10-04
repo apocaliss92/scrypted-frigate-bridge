@@ -101,6 +101,25 @@ export const maskForLog = (value: unknown): string => {
             `${scheme}[HOST_REDACTED]${path ?? ''}`);
 };
 
+/**
+ * Whether to read MQTT credentials from the Scrypted MQTT plugin. The settings UI (applySettingsShow) hides the
+ * "Use MQTT plugin credentials" toggle and shows Host/Username/Password whenever the MQTT plugin is not installed,
+ * but the toggle keeps its stored value (default true). Without this check those visible fields were ignored and
+ * no MQTT client was created, so no events or motion ever arrived.
+ */
+export const shouldUseMqttPluginCredentials = (useMqttPluginCredentials: boolean, logger: Console) => {
+    if (!useMqttPluginCredentials) {
+        return false;
+    }
+
+    if (!sdk.systemManager.getDeviceByName('MQTT')) {
+        logger.log(`MQTT plugin not installed: using the Host, Username and Password set in this plugin`);
+        return false;
+    }
+
+    return true;
+};
+
 export const motionTopic = `frigate/+/motion`;
 export const eventsTopic = `frigate/events`;
 export const audioTopic = `frigate/+/audio/+`;
