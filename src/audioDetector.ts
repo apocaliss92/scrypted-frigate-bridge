@@ -2,7 +2,7 @@ import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterfac
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
-import { audioDetectionsTopic, audioTopic, excludedAudioLabels, FRIGATE_AUDIO_DETECTOR_INTERFACE, isAudioLevelValue } from "./utils";
+import { audioDetectionsTopic, audioTopic, excludedAudioLabels, FRIGATE_AUDIO_DETECTOR_INTERFACE, isAudioLevelValue, shouldUseMqttPluginCredentials } from "./utils";
 import { FrigateBridgeAudioDetectorMixin } from "./audioDetectorMixin";
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
@@ -120,7 +120,7 @@ export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase imple
             try {
                 this.mqttClient = await getMqttBasicClient({
                     logger,
-                    useMqttPluginCredentials,
+                    useMqttPluginCredentials: shouldUseMqttPluginCredentials(useMqttPluginCredentials, logger),
                     mqttHost: this.plugin.storageSettings.getItem('mqttHost'),
                     mqttUsename: this.plugin.storageSettings.getItem('mqttUsename'),
                     mqttPassword: this.plugin.storageSettings.getItem('mqttPassword'),

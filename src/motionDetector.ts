@@ -3,7 +3,7 @@ import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-sett
 import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeMotionDetectorMixin } from "./motionDetectorMixin";
-import { FRIGATE_MOTION_DETECTOR_INTERFACE, motionTopic } from "./utils";
+import { FRIGATE_MOTION_DETECTOR_INTERFACE, motionTopic, shouldUseMqttPluginCredentials } from "./utils";
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
 export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase implements MixinProvider {
@@ -92,7 +92,7 @@ export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase impl
             try {
                 this.mqttClient = await getMqttBasicClient({
                     logger,
-                    useMqttPluginCredentials,
+                    useMqttPluginCredentials: shouldUseMqttPluginCredentials(useMqttPluginCredentials, logger),
                     mqttHost: this.plugin.storageSettings.getItem('mqttHost'),
                     mqttUsename: this.plugin.storageSettings.getItem('mqttUsename'),
                     mqttPassword: this.plugin.storageSettings.getItem('mqttPassword'),
