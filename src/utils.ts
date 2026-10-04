@@ -120,6 +120,21 @@ export const shouldUseMqttPluginCredentials = (useMqttPluginCredentials: boolean
     return true;
 };
 
+/**
+ * Logs once per Frigate camera (per plugin run) that Frigate sends messages for a camera that no Scrypted camera is
+ * mapped to, instead of dropping them silently. Callers should only invoke this when the extension is enabled on at
+ * least one camera, so installs that don't use the extension stay quiet.
+ */
+export const logUnmappedCameraOnce = (props: { logged: Set<string>, logger: Console, camera: string, extension: string }) => {
+    const { logged, logger, camera, extension } = props;
+    if (!camera || logged.has(camera)) {
+        return;
+    }
+
+    logged.add(camera);
+    logger.log(`Frigate camera "${camera}" sends events, but no Scrypted camera with the ${extension} extension has it set as "Frigate camera name", so the ${extension} ignores them`);
+};
+
 export const motionTopic = `frigate/+/motion`;
 export const eventsTopic = `frigate/events`;
 export const audioTopic = `frigate/+/audio/+`;

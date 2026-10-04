@@ -4,7 +4,7 @@ import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypt
 import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
-import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, maskForLog, objectCountTopicWildcard, parseMqttCountPayload, shouldUseMqttPluginCredentials } from "./utils";
+import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, logUnmappedCameraOnce, maskForLog, objectCountTopicWildcard, parseMqttCountPayload, shouldUseMqttPluginCredentials } from "./utils";
 
 export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {
@@ -17,6 +17,7 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
     plugin: FrigateBridgePlugin;
     logger: Console;
     mqttCb: MqttMessageCb;
+    unmappedCamerasLogged = new Set<string>();
     initializingMqtt = false;
     public mqttClient: MqttClient;
 
@@ -144,10 +145,8 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                     return cameraName === obj.after.camera;
                 });
 
-                if (!foundMixins.length) {
-                    logger.debug(
-                        `Event for camera "${obj.after.camera}" has no matching Object Detector mixin (cameraName not configured for any camera)`,
-                    );
+                if (!foundMixins.length && Object.keys(this.currentMixinsMap).length > 0) {
+                    logUnmappedCameraOnce({ logged: this.unmappedCamerasLogged, logger, camera: obj.after.camera, extension: 'Frigate Object Detector' });
                 }
 
                 const foundMotionMixins = Object.values(this.plugin.motionDetectorDevice?.currentMixinsMap ?? {}).filter(mixin => {
