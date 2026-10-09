@@ -327,6 +327,8 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             } catch {
             }
 
+            const config = await this.getConfiguration();
+
             const res = await baseFrigateApi({
                 apiUrl: this.storageSettings.values.serverUrl,
                 service: 'labels',
@@ -334,7 +336,17 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
                 httpsAgent: frigateHttpsAgent,
             });
 
-            const labels = Array.isArray(res.data) ? res.data as string[] : [];
+            // /api/labels only lists labels that already have events, so also offer
+            // every label a camera is configured to track or listen for. The resolved
+            // config lists default audio labels even when audio is off, so skip those.
+            const configuredLabels = Object.values(config?.cameras ?? {}).flatMap(camera => [
+                ...(camera?.objects?.track ?? []),
+                ...(camera?.audio?.enabled ? camera.audio.listen ?? [] : []),
+            ]);
+            const labels = Array.from(new Set([
+                ...(Array.isArray(res.data) ? res.data as string[] : []),
+                ...configuredLabels,
+            ]));
             const audioLabels = labels.filter(isAudioLabel);
             const objectLabels = labels.filter(isObjectLabel);
             logger.log(`Labels found: ${JSON.stringify({
@@ -344,8 +356,6 @@ export default class FrigateBridgePlugin extends RtspProvider implements DeviceP
             })}`);
             this.storageSettings.values.audioLabels = audioLabels;
             this.storageSettings.values.objectLabels = objectLabels;
-
-            const config = await this.getConfiguration();
 
             const cameras = Object.keys(config?.cameras ?? {});
             logger.log(`Cameras found: ${cameras}`);
