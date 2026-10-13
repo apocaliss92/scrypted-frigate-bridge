@@ -48,6 +48,7 @@ type CameraSettingKey =
     | 'logLevel'
     | 'cameraName'
     | 'rerunFfprobe'
+    | 'additionalGo2rtcStreams'
     | 'probedStreams'
     | 'nativeMixinsAdded';
 
@@ -75,6 +76,21 @@ class FrigateBridgeCamera extends RtspSmartCamera {
                 });
 
                 // Ensure next stream option fetch recomputes.
+                this.videoStreamOptions = undefined;
+            },
+        },
+        additionalGo2rtcStreams: {
+            title: 'Additional go2rtc streams',
+            description: 'go2rtc streams not linked to this camera in the Frigate config, e.g. transcodes made for HomeKit. Selected streams are added to this camera and probed.',
+            type: 'string',
+            multiple: true,
+            choices: [],
+            defaultValue: [],
+            onPut: async () => {
+                await this.discoverBestConfiguredStreamUrlsAndProbe({
+                    force: true,
+                    concurrency: 2,
+                });
                 this.videoStreamOptions = undefined;
             },
         },
@@ -129,6 +145,8 @@ class FrigateBridgeCamera extends RtspSmartCamera {
 
     private storeProbedStreams(streams: ConfiguredStreamProbe[]) {
         this.storage.setItem('probedStreams', JSON.stringify(streams));
+        // Ensure next stream option fetch recomputes.
+        this.videoStreamOptions = undefined;
     }
 
     private getGo2RtcUrlForStreamName(streamName: string): string | undefined {
@@ -305,6 +323,20 @@ class FrigateBridgeCamera extends RtspSmartCamera {
         };
     }
 
+    private getSelectedGo2rtcStreamNames(cameraConfig: any, go2rtcStreamNames: string[]): string[] {
+        const known = new Set(go2rtcStreamNames);
+        const liveStreams = cameraConfig?.live?.streams;
+        const fromLive: unknown[] = Array.isArray(liveStreams)
+            ? liveStreams
+            : (liveStreams && typeof liveStreams === 'object' ? Object.values(liveStreams) : []);
+        const fromSetting: unknown[] = toArray(this.storageSettings.values.additionalGo2rtcStreams);
+
+        const names = [...fromLive, ...fromSetting].filter(
+            (name): name is string => typeof name === 'string' && known.has(name),
+        );
+        return Array.from(new Set(names));
+    }
+
     async discoverBestConfiguredStreamUrlsAndProbe(options?: {
         force?: boolean;
         concurrency?: number;
@@ -328,10 +360,9 @@ class FrigateBridgeCamera extends RtspSmartCamera {
 
         if (!Array.isArray(inputs) || !inputs.length) {
             logger.debug(`No ffmpeg inputs found for camera ${this.cameraName} in Frigate config`);
-            return configuredStreams;
         }
 
-        inputs.forEach((input, index) => {
+        (Array.isArray(inputs) ? inputs : []).forEach((input, index) => {
             let streamName = `Stream ${index + 1}`;
             const streamId = `stream_${index + 1}`;
             const path = (typeof input === 'string') ? input : (typeof input?.path === 'string' ? input.path : undefined);
@@ -380,6 +411,36 @@ class FrigateBridgeCamera extends RtspSmartCamera {
                 this.storage.setItem(urlKey, url);
             }
         });
+
+        // Extra go2rtc streams (live.streams of the camera + user selection) that are not already
+        // present through an input. They get a stable name based id so they do not shift stream_<n>.
+        const knownGo2rtcNames = new Set(
+            configuredStreams.filter((s) => s.source === 'go2rtc').map((s) => s.streamName),
+        );
+        const knownUrls = new Set(configuredStreams.map((s) => s.url));
+        this.getSelectedGo2rtcStreamNames(cameraConfig, go2rtcStreamNames).forEach((name) => {
+            const url = `${baseGo2rtcUrl}/${name}`;
+            if (knownGo2rtcNames.has(name) || knownUrls.has(url)) {
+                return;
+            }
+            const streamId = `go2rtc_${name}`;
+            configuredStreams.push({
+                cameraName: this.cameraName,
+                streamName: name,
+                streamId,
+                source: 'go2rtc',
+                url,
+                probedAt: now,
+            });
+            knownGo2rtcNames.add(name);
+            knownUrls.add(url);
+            this.storage.setItem(this.getDetectedStreamKey(streamId), url);
+            logger.debug(`Added go2rtc stream ${name} for camera ${this.cameraName}: ${maskForLog(url)}`);
+        });
+
+        if (!configuredStreams.length) {
+            return configuredStreams;
+        }
 
         const concurrency = options?.concurrency ?? 4;
         const ffprobeResult = await mapLimit(configuredStreams, concurrency, async (item) => {
@@ -441,6 +502,17 @@ class FrigateBridgeCamera extends RtspSmartCamera {
             dynamicSettings,
             initStorage: this.initStorage
         });
+
+        if (this.storageSettings.settings.additionalGo2rtcStreams) {
+            this.storageSettings.settings.additionalGo2rtcStreams.hide = this.isBirdseyeCamera;
+            try {
+                const raw = await this.provider.getConfigurationRawJson();
+                const go2rtcStreams = raw?.go2rtc?.streams ?? (await this.provider.getConfiguration())?.go2rtc?.streams ?? {};
+                this.storageSettings.settings.additionalGo2rtcStreams.choices = Object.keys(go2rtcStreams);
+            } catch (e) {
+                this.getLogger().debug(`Unable to load go2rtc stream names for camera ${this.cameraName}`, e);
+            }
+        }
 
         if (this.storageSettings.settings.rerunFfprobe) {
             this.storageSettings.settings.rerunFfprobe.hide = this.isBirdseyeCamera;
