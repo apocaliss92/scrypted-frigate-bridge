@@ -4,7 +4,7 @@ import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import { sortBy } from "lodash";
 import { detectionClassesDefaultMap } from "../../scrypted-advanced-notifier/src/detectionClasses";
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
 import { baseFrigateApi, frigateHttpsAgent, FrigateVideoClip, initFrigateMixin, maskForLog, pluginId } from "./utils";
 import FrigateBridgeVideoclips from "./videoclips";
 

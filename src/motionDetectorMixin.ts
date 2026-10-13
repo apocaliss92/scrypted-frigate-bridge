@@ -1,7 +1,7 @@
 import { MotionSensor, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
 import FrigateBridgeMotionDetector from "./motionDetector";
 import { initFrigateMixin } from "./utils";
 

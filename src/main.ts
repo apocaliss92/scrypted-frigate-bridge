@@ -3,7 +3,7 @@ import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-sett
 import http from 'http';
 import { parse as parseYaml } from 'yaml';
 import { isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
-import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { applySettingsShow, BaseSettingsKey, getBaseLogger, getBaseSettings } from '@apocaliss92/scrypted-apocaliss-base';
 import { RtspProvider } from "../../scrypted/plugins/rtsp/src/rtsp";
 import FrigateBridgeAudioDetector from "./audioDetector";
 import FrigateBridgeCamera from "./camera";

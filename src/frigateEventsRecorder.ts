@@ -1,7 +1,7 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { join } from "path";
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
 import FrigateBridgePlugin from "./main";
 import { FRIGATE_EVENTS_RECORDER_INTERFACE } from "./utils";
 import { FrigateBridgeEventsRecorderMixin } from "./frigateEventsRecorderMixin";

@@ -27,7 +27,7 @@ import { dirname, join } from "path";
 import {
   getBaseLogger,
   logLevelSetting,
-} from "../../scrypted-apocaliss-base/src/basePlugin";
+} from "@apocaliss92/scrypted-apocaliss-base";
 import FrigateBridgeEventsRecorder from "./frigateEventsRecorder";
 import { ensureMixinsOrder, initFrigateMixin, maskForLog } from "./utils";
 

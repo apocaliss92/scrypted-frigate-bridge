@@ -2,7 +2,7 @@ import sdk, { AudioVolumeControl, AudioVolumes, MediaObject, ObjectDetectionType
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
 import { DetectionClass } from "../../scrypted-advanced-notifier/src/detectionClasses";
 import FrigateBridgeAudioDetector from "./audioDetector";
 import { AudioType, ensureMixinsOrder, frigateHttpsAgent, initFrigateMixin, maskForLog, pluginId } from "./utils";

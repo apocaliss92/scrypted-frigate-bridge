@@ -4,7 +4,7 @@ import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import { uniq } from "lodash";
 import { detectionClassesDefaultMap, isAudioLabel, isObjectLabel } from "../../scrypted-advanced-notifier/src/detectionClasses";
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
 import { FrigateActiveTotalCounts } from "./mqttSettingsTypes";
 import FrigateBridgeObjectDetector from "./objectDetector";
 import { buildOccupancyZoneId, convertFrigatePolygonCoordinatesToScryptedPolygon, ensureMixinsOrder, frigateHttpsAgent, FrigateEvent, initFrigateMixin, maskForLog, pluginId } from "./utils";

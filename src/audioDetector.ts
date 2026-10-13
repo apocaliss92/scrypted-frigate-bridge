@@ -1,10 +1,10 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
 import FrigateBridgePlugin from "./main";
 import { audioDetectionsTopic, audioTopic, excludedAudioLabels, FRIGATE_AUDIO_DETECTOR_INTERFACE, isAudioLevelValue, shouldUseMqttPluginCredentials } from "./utils";
 import { FrigateBridgeAudioDetectorMixin } from "./audioDetectorMixin";
-import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
+import { MqttClient, MqttMessageCb } from "@apocaliss92/scrypted-apocaliss-base";
 
 export default class FrigateBridgeAudioDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {

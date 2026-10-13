@@ -1,10 +1,10 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeMotionDetectorMixin } from "./motionDetectorMixin";
 import { FRIGATE_MOTION_DETECTOR_INTERFACE, logUnmappedCameraOnce, motionTopic, shouldUseMqttPluginCredentials } from "./utils";
-import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
+import { MqttClient, MqttMessageCb } from "@apocaliss92/scrypted-apocaliss-base";
 
 export default class FrigateBridgeMotionDetector extends ScryptedDeviceBase implements MixinProvider {
     initStorage: StorageSettingsDict<string> = {

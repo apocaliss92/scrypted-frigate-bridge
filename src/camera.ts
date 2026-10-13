@@ -1,6 +1,6 @@
 import sdk, { MediaObject, PictureOptions, Setting, SettingValue } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { getBaseLogger, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { Destroyable, RtspSmartCamera, createRtspMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import FrigateBridgePlugin from "./main";

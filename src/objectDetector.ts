@@ -1,7 +1,7 @@
 import { MixinProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
-import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
+import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '@apocaliss92/scrypted-apocaliss-base';
+import { MqttClient, MqttMessageCb } from "@apocaliss92/scrypted-apocaliss-base";
 import FrigateBridgePlugin from "./main";
 import { FrigateBridgeObjectDetectorMixin } from "./objectDetectorMixin";
 import { activeTopicWildcard, eventsTopic, FRIGATE_OBJECT_DETECTOR_INTERFACE, FrigateEvent, logUnmappedCameraOnce, maskForLog, objectCountTopicWildcard, parseMqttCountPayload, shouldUseMqttPluginCredentials } from "./utils";
