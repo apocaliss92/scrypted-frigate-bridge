@@ -84,27 +84,20 @@ export class FrigateBridgeVideoclipsMixin extends SettingsMixinDeviceBase<any> i
     async getVideoclipWebhookUrls(eventId: string) {
         const logger = this.getLogger();
 
-        let url: string;
         try {
-            try {
-                url = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
-            } catch {
-                url = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true })
-            }
+            // Relative path, so it works from whatever host the browser used to reach Scrypted.
+            const url = await sdk.endpointManager.getPath(undefined, { public: true });
 
             const [endpoint, parameters] = url.split('?') ?? '';
-            const pathnamePrefix = new URL(url).pathname;
             const params = `deviceId=${this.id}&eventId=${eventId}`;
 
             const parametersParsed = parameters ? `&${parameters}` : '';
             const videoclipUrl = `${endpoint}videoclip?${params}${parametersParsed}`;
             const thumbnailUrl = `${endpoint}thumbnail?${params}${parametersParsed}`;
-            const videoclipHref = `${pathnamePrefix}videoclip?${params}${parametersParsed}`;
-            const thumbnailHref = `${pathnamePrefix}thumbnail?${params}${parametersParsed}`;
 
-            return { videoclipUrl, thumbnailUrl, videoclipHref, thumbnailHref };
+            return { videoclipUrl, thumbnailUrl };
         } catch (e) {
-            logger.log(`Error fetching cloud endpoint`, e);
+            logger.log(`Error fetching endpoint path`, e);
             return {};
         }
     }
