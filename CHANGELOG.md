@@ -1,3 +1,13 @@
+### v0.1.27 — go2rtc streams that are not ffmpeg inputs
+
+#### Bug fixes
+
+**Cameras offer go2rtc streams that Frigate does not use as inputs** (#22)
+
+Streams were discovered only from `ffmpeg.inputs`, so a go2rtc stream made for another consumer (e.g. a transcode for HomeKit) never showed up. A camera now also gets the go2rtc streams named in its `live.streams`, plus the ones picked in the new **Additional go2rtc streams** setting. Existing cameras pick up `live.streams` entries after **Re-run ffprobe** or after changing the new setting. Input streams keep their ids, so streams already chosen do not move.
+
+---
+
 ### v0.1.26 — Motion only for moving objects, labels from config, relative clip urls
 
 #### Bug fixes
