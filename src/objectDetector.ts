@@ -91,6 +91,12 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
             return true;
         };
 
+        const shouldForwardEvent = (mixin: FrigateBridgeObjectDetectorMixin, obj: FrigateEvent): boolean => {
+            const labels: string[] = mixin.storageSettings.values.labels ?? [];
+
+            return labels.includes(obj.after.label) && shouldForwardByZonePrefilter(mixin, obj);
+        };
+
         // const updateCounts = (current: FrigateActiveTotalCounts | undefined, patch: Partial<FrigateActiveTotalCounts>): FrigateActiveTotalCounts => {
         //     return {
         //         active: current?.active ?? 0,
@@ -155,14 +161,6 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                     return cameraName === obj.after.camera;
                 });
 
-                for (const foundMotionMixin of foundMotionMixins) {
-                    const { reportMotionOnlyOnDetection } = foundMotionMixin.storageSettings.values;
-
-                    if (reportMotionOnlyOnDetection) {
-                        await foundMotionMixin.onFrigateMotionEvent('ON');
-                    }
-                }
-
                 const isNew = obj.type === 'new';
                 const isEnd = obj.type === 'end';
 
@@ -182,6 +180,21 @@ export default class FrigateBridgeObjectDetector extends ScryptedDeviceBase impl
                         hasClip
                     })}`);
                     return;
+                }
+
+                // Frigate republishes stationary objects at least once a minute, only moving ones are motion.
+                const isMoving = isNew || (obj.type === 'update' && obj.after.stationary === false);
+
+                for (const foundMotionMixin of foundMotionMixins) {
+                    const { reportMotionOnlyOnDetection } = foundMotionMixin.storageSettings.values;
+
+                    if (!reportMotionOnlyOnDetection || !isMoving)
+                        continue;
+
+                    if (foundMixins.length && !foundMixins.some(mixin => shouldForwardEvent(mixin, obj)))
+                        continue;
+
+                    await foundMotionMixin.onFrigateMotionEvent('ON');
                 }
 
                 for (const foundMixin of foundMixins) {
