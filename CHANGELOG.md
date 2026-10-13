@@ -1,3 +1,25 @@
+### v0.1.26 — Motion only for moving objects, labels from config, relative clip urls
+
+#### Bug fixes
+
+**"Report motion only on detection" reports motion only for moving objects that pass the filters** (#25, fixes #18)
+
+Every `frigate/events` message used to arm motion, before the false positive, label and zone checks. Frigate republishes stationary objects at least once a minute, so a parked car kept motion (and HKSV recording sessions) going all day. Motion is now armed only for a `new` event or an `update` with `stationary: false`, after the false positive check, and only if the label and zone filters of the camera's object detector pass. A camera without the object detector extension keeps only the moving check.
+
+**Labels to import include every label Frigate is configured to track** (#23)
+
+`/api/labels` lists only labels that already have events, so a tracked label never seen yet (e.g. `cat`) could not be selected. The list now also includes each camera's `objects.track`, plus `audio.listen` for cameras with audio enabled.
+
+**Clip and thumbnail urls are relative** (#24)
+
+Without the Scrypted Cloud plugin the urls pointed at `https://<server-ip>:10443` with the self-signed certificate, which the browser blocks when Scrypted is opened through another hostname (e.g. a reverse proxy). They are now relative to whatever host the browser used.
+
+#### Other
+
+The shared base now comes from the published `@apocaliss92/scrypted-apocaliss-base` npm package, so the plugin can be built without private checkouts. See the README for the sibling repositories still needed.
+
+---
+
 ### v0.1.25 — MQTT credentials fallback + unmapped camera logging
 
 #### Bug fixes
